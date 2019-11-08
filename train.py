@@ -4,6 +4,7 @@ import tensorflow as tf
 import cv2
 import matplotlib.pyplot as plt
 from utils import *
+from model.model import build_model
 
 
 
@@ -30,11 +31,12 @@ def cross_validation(data_x, data_y):
 
 
 def train():
+    base_path = 'data/model'
+    model_name = 'model'
     in_frames = 8
     out_frames = 15
     batch_size = 512
-    min_seq_len = 12
-    epochs = 80
+    epochs = 10
 
     #DATA
     #odometry
@@ -91,6 +93,9 @@ def train():
     test_x = np.concatenate([test_x, odometry_x_test], axis=-1)
     train_x = np.concatenate([train_x, odometry_x_train], axis=-1)
 
+    model = build_model(train_x.shape[1:], train_y.shape[-1], predict_variance=True)
+    model.fit(train_x, train_y, batch_size=batch_size, epochs=epochs)
+    model.save_weights(os.path.join(base_path, model_name))
 
 if __name__ == '__main__':
     np.random.seed(1444)  # random seed for train data shuffling
