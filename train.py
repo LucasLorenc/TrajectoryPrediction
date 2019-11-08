@@ -1,12 +1,11 @@
 import numpy as np
 import os
+import sys
 import tensorflow as tf
 import cv2
 import matplotlib.pyplot as plt
 from utils import *
-from model.model import build_model
-
-
+from model.model import build_model, heteroskedasticit_loss, save_model, load_model
 
 
 # learning rate schedule
@@ -30,13 +29,8 @@ def cross_validation(data_x, data_y):
     return data_train, data_test
 
 
-def train():
-    base_path = 'data/model'
-    model_name = 'model'
-    in_frames = 8
-    out_frames = 15
-    batch_size = 512
-    epochs = 10
+def train(model_name, base_path='data/model', in_frames=8, out_frames=15, diff_fn=get_diff_array_v2, normalize=False,
+          batch_size=512 , epochs=1, **model_kwargs):
 
     #DATA
     #odometry
@@ -93,10 +87,29 @@ def train():
     test_x = np.concatenate([test_x, odometry_x_test], axis=-1)
     train_x = np.concatenate([train_x, odometry_x_train], axis=-1)
 
-    model = build_model(train_x.shape[1:], train_y.shape[-1], predict_variance=True)
-    model.fit(train_x, train_y, batch_size=batch_size, epochs=epochs)
-    model.save_weights(os.path.join(base_path, model_name))
+    model_kwargs['input_shape'] = train_x.shape[1:]
+    model_kwargs['output_dim'] = train_y.shape[-1]
+
+    model = build_model(**model_kwargs)
+    model.fit(train_x[:100], train_y[:100], batch_size=batch_size, epochs=epochs)
+    # cant use model save method because of bug https://github.com/tensorflow/tensorflow/issues/34028
+    # model.save(os.path.join(base_path, model_name))
+
+    # saving weights and model_kwargs separately
+    save_model(os.path.join(base_path, model_name), model, model_kwargs)
+
+    return model
+
 
 if __name__ == '__main__':
     np.random.seed(1444)  # random seed for train data shuffling
-    train()
+
+    kwargs = dict(arg.split('=') for arg in sys.argv[1:])
+    kwargs['num_prediction_steps'] = kwargs.get('num_prediction_steps', 15)
+    kwargs['weight_dropout'] = kwargs.get('weight_dropout', 0.)
+    kwargs['unit_dropout'] = kwargs.get('unit_dropout', 0.35)
+    kwargs['lam'] = kwargs.get('lam', 0.0001)
+    kwargs['loss_fn'] = kwargs.get('loss_fn', heteroskedasticit_loss)
+    kwargs['predict_variance'] = kwargs.get('predict_variance', True)
+    kwargs['use_mc_dropout'] = kwargs.get('use_mc_dropout', True)
+    model = train(**kwargs)

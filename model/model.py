@@ -6,6 +6,7 @@ from tensorflow.keras.layers import Concatenate, Dense, LSTM, RepeatVector
 
 from layers.dropconnect_rnn import DropConnectLSTM
 from layers.dropconnect_dense import DropConnectDense
+from utils import save_pickle, load_pickle
 
 
 def heteroskedasticit_loss(y, pred):
@@ -77,3 +78,15 @@ def build_model(input_shape, output_dim, num_prediction_steps=15, weight_dropout
         model.compile(optimizer='adam', loss=loss_fn, metrics=metrics)
 
         return model
+
+
+def save_model(path, model, kwargs):
+    model.save_weights(path)
+    save_pickle(path + "_kwargs.p", kwargs)
+
+
+def load_model(path):
+    model_kwargs = load_pickle(path + "_kwargs.p")
+    model = build_model(**model_kwargs)
+    model.load_weights(path)
+    return model
