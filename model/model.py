@@ -9,7 +9,7 @@ from layers.dropconnect_dense import DropConnectDense
 from utils import save_pickle, load_pickle
 
 
-def heteroskedasticit_loss(y, pred):
+def heteroskedastic_loss(y, pred):
     mean, log_var= tf.split(pred, num_or_size_splits=2, axis=-1)
     loss1 = tf.reduce_mean(tf.exp(-log_var) * (tf.square((mean - y))))
     loss2 = tf.reduce_mean(log_var)
@@ -29,7 +29,7 @@ def mean_variance(y, pred):
 
 
 def build_model(input_shape, output_dim, num_prediction_steps=15, weight_dropout=0., unit_dropout=0.35, lam=0.0001,
-                loss_fn=heteroskedasticit_loss, predict_variance=True, use_mc_dropout=True):
+                loss_fn=heteroskedastic_loss, predict_variance=True, use_mc_dropout=True):
 
         inputs = tf.keras.Input(shape=input_shape)
 

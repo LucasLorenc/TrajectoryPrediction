@@ -5,7 +5,7 @@ import tensorflow as tf
 import cv2
 import matplotlib.pyplot as plt
 from utils import *
-from model.model import build_model, heteroskedasticit_loss, save_model, load_model
+from model.model import build_model, heteroskedastic_loss, save_model, load_model
 
 
 # learning rate schedule
@@ -15,6 +15,22 @@ def step_decay(epoch):
     epochs_drop = 3
     lrate = initial_lrate * np.power(drop, np.floor((1+epoch)/epochs_drop))
     return lrate
+
+
+def predict(model, test_x, mc_samples=10, predict_var=True, use_cum_sum=True):
+    aletoric_unc = None
+    epistemic_unc = None
+
+    pred = [model.predict(test_x) for _ in range(mc_samples)]
+    pred = np.asarray(pred)
+
+    if predict_var:
+        pred, logvar = np.split(pred, 2, axis=-1)
+        aletoric_unc = np.exp(logvar.mean(axis=0))**0.5
+        epistemic_unc = pred.std(axis=0)  # Todo maybe use cumsum on epistemic unc too
+    mean_prediction = np.cumsum(pred.mean(axis=0), axis=1) \
+        if use_cum_sum else pred.mean(axis=0)
+    return mean_prediction, aletoric_unc, epistemic_unc
 
 
 def cross_validation(data_x, data_y):
@@ -91,7 +107,7 @@ def train(model_name, base_path='data/model', in_frames=8, out_frames=15, diff_f
     model_kwargs['output_dim'] = train_y.shape[-1]
 
     model = build_model(**model_kwargs)
-    model.fit(train_x[:100], train_y[:100], batch_size=batch_size, epochs=epochs)
+    model.fit(train_x, train_y, batch_size=batch_size, epochs=epochs)
     # cant use model save method because of bug https://github.com/tensorflow/tensorflow/issues/34028
     # model.save(os.path.join(base_path, model_name))
 
@@ -109,7 +125,7 @@ if __name__ == '__main__':
     kwargs['weight_dropout'] = kwargs.get('weight_dropout', 0.)
     kwargs['unit_dropout'] = kwargs.get('unit_dropout', 0.35)
     kwargs['lam'] = kwargs.get('lam', 0.0001)
-    kwargs['loss_fn'] = kwargs.get('loss_fn', heteroskedasticit_loss)
+    kwargs['loss_fn'] = kwargs.get('loss_fn', heteroskedastic_loss)
     kwargs['predict_variance'] = kwargs.get('predict_variance', True)
     kwargs['use_mc_dropout'] = kwargs.get('use_mc_dropout', True)
     model = train(**kwargs)
