@@ -201,6 +201,12 @@ def clean_data(data_x, data_y, min_x, max_x, min_y, max_y):
     return np.asarray(cleaned_data_x), np.asarray(cleaned_data_y)
 
 
+def permutation(data_x, data_y):
+    assert data_y.shape[0] == data_x.shape[0], 'Different num of samples in data_x and data_y'
+    perm = np.random.permutation(data_x.shape[0])
+    return data_x[perm], data_y[perm]
+
+
 def standardization(x, mean, std):
     return (x - mean) / std
 
