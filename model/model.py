@@ -29,16 +29,16 @@ def mean_variance(y, pred):
 
 
 def build_model(input_shape, output_dim, num_prediction_steps=15, weight_dropout=0., unit_dropout=0.35, lam=0.0001,
-                loss_fn=heteroskedastic_loss, predict_variance=True, use_mc_dropout=True):
+                loss_fn=heteroskedastic_loss, predict_variance=True, use_mc_dropout=True, num_units=128):
 
         inputs = tf.keras.Input(shape=input_shape)
 
-        x = Dense(128,
+        x = Dense(64,
                   kernel_regularizer=tf.keras.regularizers.l2(lam),
                   bias_regularizer=tf.keras.regularizers.l2(lam),
                   activation=tf.nn.relu)(inputs)
 
-        encoder = DropConnectLSTM(256,
+        encoder = DropConnectLSTM(num_units,
                             dropout=unit_dropout,
                             recurrent_dropout=unit_dropout,
                             recurrent_kernel_dropout=weight_dropout,
@@ -49,7 +49,7 @@ def build_model(input_shape, output_dim, num_prediction_steps=15, weight_dropout
 
         encoder = RepeatVector(num_prediction_steps)(encoder)
 
-        decoder = DropConnectLSTM(256,
+        decoder = DropConnectLSTM(num_units,
                                   dropout=unit_dropout,
                                   recurrent_dropout=unit_dropout,
                                   recurrent_kernel_dropout=weight_dropout,

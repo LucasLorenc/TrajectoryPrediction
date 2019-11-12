@@ -46,7 +46,7 @@ def cross_validation(data_x, data_y):
 
 
 def train(model_name, base_path='data/model', in_frames=8, out_frames=15, diff_fn=get_diff_array_v2, normalize=False,
-          batch_size=512 , epochs=1, **model_kwargs):
+          batch_size=512 , epochs=10, evaluate=True, mc_samples=10, **model_kwargs):
 
     #DATA
     #odometry
@@ -114,6 +114,16 @@ def train(model_name, base_path='data/model', in_frames=8, out_frames=15, diff_f
     # saving weights and model_kwargs separately
     save_model(os.path.join(base_path, model_name), model, model_kwargs)
 
+    if evaluate:
+        pred, aletoric, epistemic = predict(model, test_x,
+                                            predict_var=model_kwargs['predict_variance'],
+                                            use_cum_sum=True if diff_fn == get_diff_array_v2 else False,
+                                            mc_samples=mc_samples)
+        mse = np.square(pred - test_y).mean()
+        print('MSE: %f Aletoric unc.: %s Epistemic unc: %s' % (mse,
+                                                               str(aletoric.mean() if aletoric else "-" ),
+                                                               str(epistemic.mean() if epistemic else "-")))
+
     return model
 
 
@@ -128,4 +138,6 @@ if __name__ == '__main__':
     kwargs['loss_fn'] = kwargs.get('loss_fn', heteroskedastic_loss)
     kwargs['predict_variance'] = kwargs.get('predict_variance', True)
     kwargs['use_mc_dropout'] = kwargs.get('use_mc_dropout', True)
+    kwargs['mc_samples'] = kwargs.get('mc_samples', 10)
+    kwargs['evaluate'] = kwargs.get('evaluate', True)
     model = train(**kwargs)
