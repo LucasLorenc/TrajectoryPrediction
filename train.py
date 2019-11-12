@@ -27,9 +27,12 @@ def predict(model, test_x, mc_samples=10, predict_var=True, use_cum_sum=True):
     if predict_var:
         pred, logvar = np.split(pred, 2, axis=-1)
         aletoric_unc = np.exp(logvar.mean(axis=0))**0.5
-        epistemic_unc = pred.std(axis=0)  # Todo maybe use cumsum on epistemic unc too
-    mean_prediction = np.cumsum(pred.mean(axis=0), axis=1) \
-        if use_cum_sum else pred.mean(axis=0)
+
+    mean_prediction = np.cumsum(pred.mean(axis=0), axis=1) if use_cum_sum else pred.mean(axis=0)
+
+    if mc_samples > 1:
+        epistemic_unc = pred.std(axis=0)
+
     return mean_prediction, aletoric_unc, epistemic_unc
 
 
@@ -119,6 +122,7 @@ def train(model_name, base_path='data/model', in_frames=8, out_frames=15, diff_f
                                             predict_var=model_kwargs['predict_variance'],
                                             use_cum_sum=True if diff_fn == get_diff_array_v2 else False,
                                             mc_samples=mc_samples)
+        test_y = np.cumsum(test_y, axis=1) if diff_fn == get_diff_array_v2 else test_y
         mse = np.square(pred - test_y).mean()
         print('MSE: %f Aletoric unc.: %s Epistemic unc: %s' % (mse,
                                                                str(aletoric.mean() if aletoric else "-" ),
