@@ -125,8 +125,8 @@ def train(model_name, base_path='data/model', in_frames=8, out_frames=15, diff_f
         test_y = np.cumsum(test_y, axis=1) if diff_fn == get_diff_array_v2 else test_y
         mse = np.square(pred - test_y).mean()
         print('MSE: %f Aletoric unc.: %s Epistemic unc: %s' % (mse,
-                                                               str(aletoric.mean() if aletoric else "-" ),
-                                                               str(epistemic.mean() if epistemic else "-")))
+                                                               str(aletoric.mean()) if aletoric is not None else '-',
+                                                               str(epistemic.mean()) if epistemic is not None else '-'))
 
     return model
 
@@ -144,4 +144,6 @@ if __name__ == '__main__':
     kwargs['use_mc_dropout'] = kwargs.get('use_mc_dropout', True)
     kwargs['mc_samples'] = kwargs.get('mc_samples', 10)
     kwargs['evaluate'] = kwargs.get('evaluate', True)
+    kwargs['epochs'] = kwargs.get('epochs', 10)
+    kwargs['num_units'] = kwargs.get('num_units', 256)
     model = train(**kwargs)

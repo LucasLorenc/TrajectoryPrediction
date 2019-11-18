@@ -59,7 +59,10 @@ def build_model(input_shape, output_dim, num_prediction_steps=15, weight_dropout
                                   return_sequences=True,
                                   use_mc_dropout=use_mc_dropout)(encoder)
 
-        mean = Dense(output_dim,
+        mean = DropConnectDense(output_dim,
+                                kernel_dropout=weight_dropout,
+                                unit_dropout=unit_dropout,
+                                use_mc_dropout=use_mc_dropout,
                                 kernel_regularizer=tf.keras.regularizers.l2(lam),
                                 bias_regularizer=tf.keras.regularizers.l2(lam),
                                 activation=None)(decoder)
