@@ -77,7 +77,7 @@ def train(model_name, base_path='data/model', in_frames=8, out_frames=15, diff_f
     test_x, test_y = get_data_set(in_frames, out_frames, 'data/tracks/tracks_test.h5', diff_fn=get_diff_array_v2)
     train_x, train_y = get_data_set(in_frames, out_frames, 'data/tracks/tracks_train.h5', diff_fn=get_diff_array_v2)
     inverse_train_x, inverse_train_y = get_data_set(in_frames, out_frames, 'data/tracks/tracks_train.h5',
-                                                    diff_fn=get_diff_array_v2)
+                                                    diff_fn=get_diff_array_v2, use_inverse_bbs=True)
 
     save_pickle(tracks_pickle_path_test, (test_x, test_y))
     save_pickle(tracks_pickle_path_train, (train_x, train_y))
@@ -101,6 +101,26 @@ def train(model_name, base_path='data/model', in_frames=8, out_frames=15, diff_f
     odometry_x_train = np.concatenate([odometry_x_train, inverse_odometry_x_train], axis=0)
     odometry_y_train = np.concatenate([odometry_y_train, inverse_odometry_y_train], axis=0)
 
+    if normalize:
+        tracks_mean = np.asarray([test_x.mean(), train_x.mean(),
+                                test_y.mean(), train_y.mean()]).mean()
+        tracks_std = np.asarray([test_x.std(), train_x.std(),
+                                test_y.std(), train_y.std()]).mean()
+
+        test_x = standardization(test_x, tracks_mean, tracks_std)
+        test_y = standardization(test_y, tracks_mean, tracks_std)
+        train_x = standardization(train_x, tracks_mean, tracks_std)
+        train_y = standardization(train_y, tracks_mean, tracks_std)
+
+        speed_mean = np.asarray([odometry_x_test[:, :, 0].mean(), odometry_x_train[:, :, 0].mean()]).mean()
+        speed_std = np.asarray([odometry_x_test[:, :, 0].std(), odometry_x_train[:, :, 0].std()]).mean()
+        odometry_x_test[:, :, 0] = standardization(odometry_x_test[:, :, 0], speed_mean, speed_std)
+        odometry_x_train[:, :, 0] = standardization(odometry_x_train[:, :, 0], speed_mean, speed_std)
+
+        steer_mean = np.asarray([odometry_x_test[:, :, 1].mean(), odometry_x_train[:, :, 1].mean()]).mean()
+        steer_std = np.asarray([odometry_x_test[:, :, 1].std(), odometry_x_train[:, :, 1].std()]).mean()
+        odometry_x_test[:, :, 1] = standardization(odometry_x_test[:, :, 1], steer_mean, steer_std)
+        odometry_x_train[:, :, 1] = standardization(odometry_x_train[:, :, 1], steer_mean, steer_std)
 
     #concatanete bbs with odometry
     test_x = np.concatenate([test_x, odometry_x_test], axis=-1)
@@ -122,6 +142,14 @@ def train(model_name, base_path='data/model', in_frames=8, out_frames=15, diff_f
                                             predict_var=model_kwargs['predict_variance'],
                                             use_cum_sum=True if diff_fn == get_diff_array_v2 else False,
                                             mc_samples=mc_samples)
+        if normalize:
+            test_y = inverse_standardization(test_y, tracks_mean, tracks_std)
+            pred = inverse_standardization(pred, tracks_mean, tracks_std)
+            if aletoric is not None:
+                aletoric = inverse_standardization(aletoric, tracks_mean, tracks_std)
+            if epistemic is not None:
+                epistemic = inverse_standardization(epistemic, tracks_mean, tracks_std)
+
         test_y = np.cumsum(test_y, axis=1) if diff_fn == get_diff_array_v2 else test_y
         mse = np.square(pred - test_y).mean()
         print('MSE: %f Aletoric unc.: %s Epistemic unc: %s' % (mse,
@@ -146,4 +174,5 @@ if __name__ == '__main__':
     kwargs['evaluate'] = kwargs.get('evaluate', True)
     kwargs['epochs'] = kwargs.get('epochs', 10)
     kwargs['num_units'] = kwargs.get('num_units', 256)
+    kwargs['normalize'] = kwargs.get('normalize', True)
     model = train(**kwargs)
