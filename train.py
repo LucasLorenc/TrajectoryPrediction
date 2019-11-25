@@ -128,6 +128,10 @@ def train(model_name, base_path='data/model', in_frames=8, out_frames=15, diff_f
 
     model_kwargs['input_shape'] = train_x.shape[1:]
     model_kwargs['output_dim'] = train_y.shape[-1]
+    model_kwargs['in_frames'] = in_frames
+    model_kwargs['out_frames'] = out_frames
+    model_kwargs['diff_fn'] = diff_fn
+    model_kwargs['normalize'] = normalize
 
     model = build_model(**model_kwargs)
     model.fit(train_x, train_y, batch_size=batch_size, epochs=epochs)

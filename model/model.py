@@ -29,7 +29,7 @@ def mean_variance(y, pred):
 
 
 def build_model(input_shape, output_dim, num_prediction_steps=15, weight_dropout=0., unit_dropout=0.35, lam=0.0001,
-                loss_fn=heteroskedastic_loss, predict_variance=True, use_mc_dropout=True, num_units=128):
+                loss_fn=heteroskedastic_loss, predict_variance=True, use_mc_dropout=True, num_units=128, **kwargs):
 
         inputs = tf.keras.Input(shape=input_shape)
 
@@ -93,3 +93,10 @@ def load_model(path):
     model = build_model(**model_kwargs)
     model.load_weights(path)
     return model
+
+
+def load_model_and_kwargs(path):
+    model_kwargs = load_pickle(path + "_kwargs.p")
+    model = build_model(**model_kwargs)
+    model.load_weights(path)
+    return model, model_kwargs
