@@ -80,10 +80,10 @@ def train(model_name, model_path='data/model', in_frames=8, out_frames=15, diff_
     tracks_pickle_path_train = 'data/pickles/train_tracks.p'
     tracks_pickle_path_inverse_train = 'data/pickles/inverse_train_tracks.p'
 
-    test_x, test_y = get_data_set(in_frames, out_frames, 'data/tracks/tracks_test.h5', diff_fn=get_diff_array_v2)
-    train_x, train_y = get_data_set(in_frames, out_frames, 'data/tracks/tracks_train.h5', diff_fn=get_diff_array_v2)
+    test_x, test_y = get_data_set(in_frames, out_frames, 'data/tracks/tracks_test.h5', diff_fn=diff_fn)
+    train_x, train_y = get_data_set(in_frames, out_frames, 'data/tracks/tracks_train.h5', diff_fn=diff_fn)
     inverse_train_x, inverse_train_y = get_data_set(in_frames, out_frames, 'data/tracks/tracks_train.h5',
-                                                    diff_fn=get_diff_array_v2, use_inverse_bbs=True)
+                                                    diff_fn=diff_fn, use_inverse_bbs=True)
 
     save_pickle(tracks_pickle_path_test, (test_x, test_y))
     save_pickle(tracks_pickle_path_train, (train_x, train_y))
