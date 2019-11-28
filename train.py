@@ -6,7 +6,8 @@ import cv2
 import matplotlib.pyplot as plt
 from utils import *
 from model.model import build_model, heteroskedastic_loss, save_model, load_model
-
+from tensorflow.keras.losses import mse
+from distutils.util import strtobool
 
 # learning rate schedule
 def step_decay(epoch):
@@ -26,7 +27,8 @@ def predict(model, test_x, mc_samples=10, predict_var=True, use_cum_sum=True):
 
     if predict_var:
         pred, logvar = np.split(pred, 2, axis=-1)
-        aletoric_unc = np.exp(logvar.mean(axis=0))**0.5
+        # aletoric_unc = np.exp(logvar.mean(axis=0))**0.5
+        aletoric_unc = logvar.mean(axis=0)
 
     mean_prediction = np.cumsum(pred.mean(axis=0), axis=1) if use_cum_sum else pred.mean(axis=0)
 
@@ -48,8 +50,12 @@ def cross_validation(data_x, data_y):
     return data_train, data_test
 
 
-def train(model_name, base_path='data/model', in_frames=8, out_frames=15, diff_fn=get_diff_array_v2, normalize=False,
-          batch_size=512 , epochs=10, evaluate=True, mc_samples=10, **model_kwargs):
+def train(model_name, model_path='data/model', in_frames=8, out_frames=15, diff_fn=get_diff_array_v2, normalize=False,
+          batch_size=512, epochs=10, evaluate=True, mc_samples=10, **model_kwargs):
+
+    model_kwargs = dict(locals(), **model_kwargs)
+    del model_kwargs['model_kwargs'] # del duplicate values
+    print(model_kwargs)
 
     #DATA
     #odometry
@@ -128,18 +134,14 @@ def train(model_name, base_path='data/model', in_frames=8, out_frames=15, diff_f
 
     model_kwargs['input_shape'] = train_x.shape[1:]
     model_kwargs['output_dim'] = train_y.shape[-1]
-    model_kwargs['in_frames'] = in_frames
-    model_kwargs['out_frames'] = out_frames
-    model_kwargs['diff_fn'] = diff_fn
-    model_kwargs['normalize'] = normalize
 
     model = build_model(**model_kwargs)
-    model.fit(train_x, train_y, batch_size=batch_size, epochs=epochs)
+    model.fit(train_x, train_y, batch_size=batch_size, epochs=epochs, shuffle=True)
     # cant use model save method because of bug https://github.com/tensorflow/tensorflow/issues/34028
     # model.save(os.path.join(base_path, model_name))
 
     # saving weights and model_kwargs separately
-    save_model(os.path.join(base_path, model_name), model, model_kwargs)
+    save_model(os.path.join(model_path, model_name), model, model_kwargs)
 
     if evaluate:
         pred, aletoric, epistemic = predict(model, test_x,
@@ -150,7 +152,7 @@ def train(model_name, base_path='data/model', in_frames=8, out_frames=15, diff_f
             test_y = inverse_standardization(test_y, tracks_mean, tracks_std)
             pred = inverse_standardization(pred, tracks_mean, tracks_std)
             if aletoric is not None:
-                aletoric = inverse_standardization(aletoric, tracks_mean, tracks_std)
+                aletoric = aletoric * tracks_std # scale aletoric uncertainty
             if epistemic is not None:
                 epistemic = inverse_standardization(epistemic, tracks_mean, tracks_std)
 
@@ -163,20 +165,36 @@ def train(model_name, base_path='data/model', in_frames=8, out_frames=15, diff_f
     return model
 
 
+def get_kwargs_from_cli(kwargs):
+    kwargs['model_name'] = kwargs.get('model_name', 'model')
+    kwargs['model_path'] = kwargs.get('model_path', 'data/model')
+    kwargs['num_prediction_steps'] = int(kwargs.get('num_prediction_steps', 15))
+    kwargs['weight_dropout'] = float(kwargs.get('weight_dropout', 0.))
+    kwargs['unit_dropout'] = float(kwargs.get('unit_dropout', 0.25))
+    kwargs['lam'] = float(kwargs.get('lam', 0.0001))
+    kwargs['predict_variance'] = strtobool(kwargs.get('predict_variance', 'True'))
+    kwargs['use_mc_dropout'] = strtobool(kwargs.get('use_mc_dropout', 'True'))
+    kwargs['mc_samples'] = int(kwargs.get('mc_samples', 10))
+    kwargs['epochs'] = int(kwargs.get('epochs', 1))
+    kwargs['batch_size'] = int(kwargs.get('batch_size', 512))
+    kwargs['num_units'] = int(kwargs.get('num_units', 256))
+    kwargs['normalize'] = strtobool(kwargs.get('normalize', 'True'))
+    kwargs['diff_fn'] = kwargs.get('diff_fn', 'get_diff_array')
+    kwargs['loss_fn'] = kwargs.get('loss_fn', 'heteroskedastic_loss')
+    _losses = ['mse', heteroskedastic_loss.__name__]
+    if kwargs['loss_fn'] not in _losses:
+        raise ValueError('Unknown loss_fn  use one  these {}'.format(_losses))
+    kwargs['loss_fn'] = globals()[kwargs['loss_fn']]
+    kwargs['diff_fn'] = globals()[kwargs['diff_fn']] \
+        if kwargs['diff_fn'] in [get_diff_array_v2.__name__, get_diff_array.__name__] else get_diff_array
+    kwargs['evaluate'] = strtobool(kwargs.get('evaluate', 'False'))
+
+    return kwargs
+
+
 if __name__ == '__main__':
     np.random.seed(1444)  # random seed for train data shuffling
 
     kwargs = dict(arg.split('=') for arg in sys.argv[1:])
-    kwargs['num_prediction_steps'] = kwargs.get('num_prediction_steps', 15)
-    kwargs['weight_dropout'] = kwargs.get('weight_dropout', 0.)
-    kwargs['unit_dropout'] = kwargs.get('unit_dropout', 0.35)
-    kwargs['lam'] = kwargs.get('lam', 0.0001)
-    kwargs['loss_fn'] = kwargs.get('loss_fn', heteroskedastic_loss)
-    kwargs['predict_variance'] = kwargs.get('predict_variance', True)
-    kwargs['use_mc_dropout'] = kwargs.get('use_mc_dropout', True)
-    kwargs['mc_samples'] = kwargs.get('mc_samples', 10)
-    kwargs['evaluate'] = kwargs.get('evaluate', True)
-    kwargs['epochs'] = kwargs.get('epochs', 10)
-    kwargs['num_units'] = kwargs.get('num_units', 256)
-    kwargs['normalize'] = kwargs.get('normalize', True)
+    kwargs = get_kwargs_from_cli(kwargs)
     model = train(**kwargs)
