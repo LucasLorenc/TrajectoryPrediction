@@ -5,7 +5,7 @@ import tensorflow as tf
 import cv2
 import matplotlib.pyplot as plt
 from utils import *
-from model.model import build_model, heteroskedastic_loss, save_model, load_model
+from model.model import build_model, heteroskedastic_loss, heteroskedastic_loss_v2
 from tensorflow.keras.losses import mse
 from distutils.util import strtobool
 
@@ -137,11 +137,12 @@ def train(model_name, model_path='data/model', in_frames=8, out_frames=15, diff_
 
     model = build_model(**model_kwargs)
     model.fit(train_x, train_y, batch_size=batch_size, epochs=epochs, shuffle=True)
+
     # cant use model save method because of bug https://github.com/tensorflow/tensorflow/issues/34028
     # model.save(os.path.join(base_path, model_name))
 
     # saving weights and model_kwargs separately
-    save_model(os.path.join(model_path, model_name), model, model_kwargs)
+    model.save_model()
 
     if evaluate:
         pred, aletoric, epistemic = predict(model, test_x,
@@ -175,19 +176,19 @@ def get_kwargs_from_cli(kwargs):
     kwargs['predict_variance'] = strtobool(kwargs.get('predict_variance', 'True'))
     kwargs['use_mc_dropout'] = strtobool(kwargs.get('use_mc_dropout', 'True'))
     kwargs['mc_samples'] = int(kwargs.get('mc_samples', 10))
-    kwargs['epochs'] = int(kwargs.get('epochs', 1))
+    kwargs['epochs'] = int(kwargs.get('epochs', 10))
     kwargs['batch_size'] = int(kwargs.get('batch_size', 512))
     kwargs['num_units'] = int(kwargs.get('num_units', 256))
     kwargs['normalize'] = strtobool(kwargs.get('normalize', 'True'))
     kwargs['diff_fn'] = kwargs.get('diff_fn', 'get_diff_array')
-    kwargs['loss_fn'] = kwargs.get('loss_fn', 'heteroskedastic_loss')
-    _losses = ['mse', heteroskedastic_loss.__name__]
+    kwargs['loss_fn'] = kwargs.get('loss_fn', 'heteroskedastic_loss_v2')
+    _losses = ['mse', heteroskedastic_loss.__name__, heteroskedastic_loss_v2.__name__]
     if kwargs['loss_fn'] not in _losses:
         raise ValueError('Unknown loss_fn  use one  these {}'.format(_losses))
     kwargs['loss_fn'] = globals()[kwargs['loss_fn']]
     kwargs['diff_fn'] = globals()[kwargs['diff_fn']] \
         if kwargs['diff_fn'] in [get_diff_array_v2.__name__, get_diff_array.__name__] else get_diff_array
-    kwargs['evaluate'] = strtobool(kwargs.get('evaluate', 'False'))
+    kwargs['evaluate'] = strtobool(kwargs.get('evaluate', 'True'))
 
     return kwargs
 
