@@ -5,7 +5,7 @@ import tensorflow as tf
 import cv2
 import matplotlib.pyplot as plt
 from utils import *
-from model.model import build_model, heteroskedastic_loss, heteroskedastic_loss_v2
+from model.model import *
 from tensorflow.keras.losses import mse
 from distutils.util import strtobool
 
@@ -51,7 +51,8 @@ def cross_validation(data_x, data_y):
 
 
 def train(model_name, model_path='data/model', in_frames=8, out_frames=15, diff_fn=get_diff_array_v2, normalize=False,
-          batch_size=512, epochs=10, evaluate=True, mc_samples=10, **model_kwargs):
+          batch_size=512, epochs=10, evaluate=True, mc_samples=10, use_two_stream_model=False,
+          odometry_model_path='data/model_odometry', odometry_model_name='model', **model_kwargs):
 
     model_kwargs = dict(locals(), **model_kwargs)
     del model_kwargs['model_kwargs'] # del duplicate values
@@ -122,21 +123,36 @@ def train(model_name, model_path='data/model', in_frames=8, out_frames=15, diff_
         speed_std = np.asarray([odometry_x_test[:, :, 0].std(), odometry_x_train[:, :, 0].std()]).mean()
         odometry_x_test[:, :, 0] = standardization(odometry_x_test[:, :, 0], speed_mean, speed_std)
         odometry_x_train[:, :, 0] = standardization(odometry_x_train[:, :, 0], speed_mean, speed_std)
+        odometry_y_test[:, :, 0] = standardization(odometry_y_test[:, :, 0], speed_mean, speed_std)
+        odometry_y_train[:, :, 0] = standardization(odometry_y_train[:, :, 0], speed_mean, speed_std)
 
         steer_mean = np.asarray([odometry_x_test[:, :, 1].mean(), odometry_x_train[:, :, 1].mean()]).mean()
         steer_std = np.asarray([odometry_x_test[:, :, 1].std(), odometry_x_train[:, :, 1].std()]).mean()
         odometry_x_test[:, :, 1] = standardization(odometry_x_test[:, :, 1], steer_mean, steer_std)
         odometry_x_train[:, :, 1] = standardization(odometry_x_train[:, :, 1], steer_mean, steer_std)
+        odometry_y_test[:, :, 1] = standardization(odometry_y_test[:, :, 1], steer_mean, steer_std)
+        odometry_y_train[:, :, 1] = standardization(odometry_y_train[:, :, 1], steer_mean, steer_std)
 
     #concatanete bbs with odometry
     test_x = np.concatenate([test_x, odometry_x_test], axis=-1)
     train_x = np.concatenate([train_x, odometry_x_train], axis=-1)
 
-    model_kwargs['input_shape'] = train_x.shape[1:]
-    model_kwargs['output_dim'] = train_y.shape[-1]
+    model_kwargs['model_input_shape'] = train_x.shape[1:]
+    model_kwargs['model_output_dim'] = train_y.shape[-1]
 
-    model = build_model(**model_kwargs)
-    model.fit(train_x, train_y, batch_size=batch_size, epochs=epochs, shuffle=True)
+    model_cls = TwoStreamLstmPredictor if use_two_stream_model else LstmPredictor
+    model = build_model(model_cls=model_cls, **model_kwargs)
+    # two stream model
+    if use_two_stream_model:
+        model_odometry = LstmPredictor.load_model(os.path.join(odometry_model_path, odometry_model_name))
+        print('[+] Predicting future odometry for model decoder')
+        odometry_pred_train, _, _ = predict(model_odometry, odometry_x_train, model_odometry.kwargs['mc_samples'],
+                                      model_odometry.predict_variance, False)
+        odometry_pred_test, _, _ = predict(model_odometry, odometry_x_test, model_odometry.kwargs['mc_samples'],
+                                            model_odometry.predict_variance, False)
+        model.fit([train_x, odometry_pred_train], train_y, batch_size=batch_size, epochs=epochs, shuffle=True)
+    else:
+        model.fit(train_x, train_y, batch_size=batch_size, epochs=epochs, shuffle=True)
 
     # cant use model save method because of bug https://github.com/tensorflow/tensorflow/issues/34028
     # model.save(os.path.join(base_path, model_name))
@@ -145,7 +161,7 @@ def train(model_name, model_path='data/model', in_frames=8, out_frames=15, diff_
     model.save_model()
 
     if evaluate:
-        pred, aletoric, epistemic = predict(model, test_x,
+        pred, aletoric, epistemic = predict(model, [test_x, odometry_pred_test] if use_two_stream_model else test_x,
                                             predict_var=model_kwargs['predict_variance'],
                                             use_cum_sum=True if diff_fn == get_diff_array_v2 else False,
                                             mc_samples=mc_samples)
@@ -169,6 +185,8 @@ def train(model_name, model_path='data/model', in_frames=8, out_frames=15, diff_
 def get_kwargs_from_cli(kwargs):
     kwargs['model_name'] = kwargs.get('model_name', 'model')
     kwargs['model_path'] = kwargs.get('model_path', 'data/model')
+    kwargs['odometry_model_name'] = kwargs.get('odometry_model_name', 'model')
+    kwargs['odometry_model_path'] = kwargs.get('odometry_model_path', 'data/model_odometry')
     kwargs['num_prediction_steps'] = int(kwargs.get('num_prediction_steps', 15))
     kwargs['weight_dropout'] = float(kwargs.get('weight_dropout', 0.))
     kwargs['unit_dropout'] = float(kwargs.get('unit_dropout', 0.25))
@@ -181,7 +199,7 @@ def get_kwargs_from_cli(kwargs):
     kwargs['num_units'] = int(kwargs.get('num_units', 256))
     kwargs['normalize'] = strtobool(kwargs.get('normalize', 'True'))
     kwargs['diff_fn'] = kwargs.get('diff_fn', 'get_diff_array')
-    kwargs['loss_fn'] = kwargs.get('loss_fn', 'heteroskedastic_loss_v2')
+    kwargs['loss_fn'] = kwargs.get('loss_fn', 'mse')
     _losses = ['mse', heteroskedastic_loss.__name__, heteroskedastic_loss_v2.__name__]
     if kwargs['loss_fn'] not in _losses:
         raise ValueError('Unknown loss_fn  use one  these {}'.format(_losses))

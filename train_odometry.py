@@ -63,8 +63,8 @@ def train(model_name, model_path='data/model', in_frames=8, out_frames=15, norma
         odometry_y_test[:, :, 1] = standardization(odometry_y_test[:, :, 1], steer_mean, steer_std)
         odometry_y_train[:, :, 1] = standardization(odometry_y_train[:, :, 1], steer_mean, steer_std)
 
-    model_kwargs['input_shape'] = odometry_x_test.shape[1:]
-    model_kwargs['output_dim'] = odometry_y_test.shape[-1]
+    model_kwargs['model_input_shape'] = odometry_x_test.shape[1:]
+    model_kwargs['model_output_dim'] = odometry_y_test.shape[-1]
 
     model = build_model(**model_kwargs)
     model.fit(odometry_x_train, odometry_y_train, batch_size=batch_size, epochs=epochs, shuffle=True)
