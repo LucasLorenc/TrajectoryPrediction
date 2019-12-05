@@ -52,7 +52,7 @@ def cross_validation(data_x, data_y):
 
 def train(model_name, model_path='data/model', in_frames=8, out_frames=15, diff_fn=get_diff_array_v2, normalize=False,
           batch_size=512, epochs=10, evaluate=True, mc_samples=10, use_two_stream_model=False,
-          odometry_model_path='data/model_odometry', odometry_model_name='model', **model_kwargs):
+          odometry_model_path='data/model_odometry', odometry_model_name='model', load_model=False, **model_kwargs):
 
     model_kwargs = dict(locals(), **model_kwargs)
     del model_kwargs['model_kwargs'] # del duplicate values
@@ -141,7 +141,11 @@ def train(model_name, model_path='data/model', in_frames=8, out_frames=15, diff_
     model_kwargs['model_output_dim'] = train_y.shape[-1]
 
     model_cls = TwoStreamLstmPredictor if use_two_stream_model else LstmPredictor
-    model = build_model(model_cls=model_cls, **model_kwargs)
+    if load_model:
+        model = model_cls.load_model(os.path.join(model_path, model_name))
+    else:
+        model = build_model(model_cls=model_cls, **model_kwargs)
+
     # two stream model
     if use_two_stream_model:
         model_odometry = LstmPredictor.load_model(os.path.join(odometry_model_path, odometry_model_name))
@@ -183,23 +187,24 @@ def train(model_name, model_path='data/model', in_frames=8, out_frames=15, diff_
 
 
 def get_kwargs_from_cli(kwargs):
-    kwargs['model_name'] = kwargs.get('model_name', 'model')
-    kwargs['model_path'] = kwargs.get('model_path', 'data/model')
-    kwargs['odometry_model_name'] = kwargs.get('odometry_model_name', 'model')
+    kwargs['model_name'] = kwargs.get('model_name', 'model_lv2_no_inverse')
+    kwargs['model_path'] = kwargs.get('model_path', 'data/model_two_stream')
+    kwargs['odometry_model_name'] = kwargs.get('odometry_model_name', 'model_no_inverse')
     kwargs['odometry_model_path'] = kwargs.get('odometry_model_path', 'data/model_odometry')
+    kwargs['use_two_stream_model'] = strtobool(kwargs.get('use_two_stream_model', 'True'))
     kwargs['num_prediction_steps'] = int(kwargs.get('num_prediction_steps', 15))
-    kwargs['weight_dropout'] = float(kwargs.get('weight_dropout', 0.))
-    kwargs['unit_dropout'] = float(kwargs.get('unit_dropout', 0.25))
+    kwargs['weight_dropout'] = float(kwargs.get('weight_dropout', 0.35))
+    kwargs['unit_dropout'] = float(kwargs.get('unit_dropout', 0.))
     kwargs['lam'] = float(kwargs.get('lam', 0.0001))
     kwargs['predict_variance'] = strtobool(kwargs.get('predict_variance', 'True'))
     kwargs['use_mc_dropout'] = strtobool(kwargs.get('use_mc_dropout', 'True'))
     kwargs['mc_samples'] = int(kwargs.get('mc_samples', 10))
-    kwargs['epochs'] = int(kwargs.get('epochs', 10))
+    kwargs['epochs'] = int(kwargs.get('epochs', 20))
     kwargs['batch_size'] = int(kwargs.get('batch_size', 512))
     kwargs['num_units'] = int(kwargs.get('num_units', 256))
     kwargs['normalize'] = strtobool(kwargs.get('normalize', 'True'))
     kwargs['diff_fn'] = kwargs.get('diff_fn', 'get_diff_array')
-    kwargs['loss_fn'] = kwargs.get('loss_fn', 'mse')
+    kwargs['loss_fn'] = kwargs.get('loss_fn', 'heteroskedastic_loss_v2')
     _losses = ['mse', heteroskedastic_loss.__name__, heteroskedastic_loss_v2.__name__]
     if kwargs['loss_fn'] not in _losses:
         raise ValueError('Unknown loss_fn  use one  these {}'.format(_losses))
@@ -207,6 +212,7 @@ def get_kwargs_from_cli(kwargs):
     kwargs['diff_fn'] = globals()[kwargs['diff_fn']] \
         if kwargs['diff_fn'] in [get_diff_array_v2.__name__, get_diff_array.__name__] else get_diff_array
     kwargs['evaluate'] = strtobool(kwargs.get('evaluate', 'True'))
+    kwargs['load_model'] = strtobool(kwargs.get('load_model', 'True'))
 
     return kwargs
 
