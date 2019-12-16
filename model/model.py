@@ -22,7 +22,7 @@ def heteroskedastic_loss(y, pred):
 def heteroskedastic_loss_v2(y, pred):
     mean, log_var= tf.split(pred, num_or_size_splits=2, axis=-1)
 
-    c1 = 0.6
+    c1 = 0.75
     c2 = 1 - c1
 
     y_x1 = tf.gather(y, [0], axis=-1)
@@ -41,10 +41,10 @@ def heteroskedastic_loss_v2(y, pred):
     mean_y2 = tf.gather(mean, [3], axis=-1)
     log_var_y2 = tf.gather(log_var, [3], axis=-1)
 
-    loss_x1 = c1 * tf.reduce_mean(tf.exp(-log_var_x1) * (tf.square((mean_x1 - y_x1)))) + c2 * tf.reduce_mean(log_var_x1)
-    loss_x2 = c1 * tf.reduce_mean(tf.exp(-log_var_x2) * (tf.square((mean_x2 - y_x2)))) + c2 * tf.reduce_mean(log_var_x2)
-    loss_y1 = c1 * tf.reduce_mean(tf.exp(-log_var_y1) * (tf.square((mean_y1 - y_y1)))) + c2 * tf.reduce_mean(log_var_y1)
-    loss_y2 = c1 * tf.reduce_mean(tf.exp(-log_var_y2) * (tf.square((mean_y2 - y_y2)))) + c2 * tf.reduce_mean(log_var_y2)
+    loss_x1 = tf.reduce_mean(c1 * (tf.exp(-log_var_x1) * (tf.square((mean_x1 - y_x1)))) + c2 * log_var_x1)
+    loss_x2 = tf.reduce_mean(c1 * (tf.exp(-log_var_x2) * (tf.square((mean_x2 - y_x2)))) + c2 * log_var_x2)
+    loss_y1 = tf.reduce_mean(c1 * (tf.exp(-log_var_y1) * (tf.square((mean_y1 - y_y1)))) + c2 * log_var_y1)
+    loss_y2 = tf.reduce_mean(c1 * (tf.exp(-log_var_y2) * (tf.square((mean_y2 - y_y2)))) + c2 * log_var_y2)
 
     return loss_x1 + loss_y1 + loss_x2 + loss_y2
 
@@ -105,6 +105,7 @@ class LstmPredictor(BaseModel):
         self.lam = lam
         self.use_mc_dropout = use_mc_dropout
         self.num_units = num_units
+        self.kwargs = self.get_config()
 
         self.w_in = Dense(64,
                          kernel_regularizer=tf.keras.regularizers.l2(lam),
@@ -212,6 +213,7 @@ class TwoStreamLstmPredictor(BaseModel):
         self.use_mc_dropout = use_mc_dropout
         self.num_units = num_units
         self.input_2_dim = input_2_dim
+        self.kwargs = self.get_config()
 
         self.w_in = Dense(64,
                          kernel_regularizer=tf.keras.regularizers.l2(lam),
