@@ -3,9 +3,11 @@ import os
 import sys
 import tensorflow as tf
 import cv2
+import argparse
 import matplotlib.pyplot as plt
 from utils import *
 from model.model import *
+from model.callbacks import *
 from tensorflow.keras.losses import mse
 from distutils.util import strtobool
 
@@ -18,24 +20,16 @@ def step_decay(epoch):
     return lrate
 
 
-def predict(model, test_x, mc_samples=10, predict_var=True, use_cum_sum=True):
-    aletoric_unc = None
-    epistemic_unc = None
+def predict(model, test_x, mc_samples=10, predict_var=True):
+    logvar = None
 
     pred = [model.predict(test_x) for _ in range(mc_samples)]
     pred = np.asarray(pred)
 
     if predict_var:
         pred, logvar = np.split(pred, 2, axis=-1)
-        # aletoric_unc = np.exp(logvar.mean(axis=0))**0.5
-        aletoric_unc = logvar.mean(axis=0)
 
-    mean_prediction = np.cumsum(pred.mean(axis=0), axis=1) if use_cum_sum else pred.mean(axis=0)
-
-    if mc_samples > 1:
-        epistemic_unc = pred.std(axis=0)
-
-    return mean_prediction, aletoric_unc, epistemic_unc
+    return pred, logvar
 
 
 def cross_validation(data_x, data_y):
@@ -51,53 +45,48 @@ def cross_validation(data_x, data_y):
 
 
 def train(model_name, model_path='data/model', in_frames=8, out_frames=15, diff_fn=get_diff_array_v2, normalize=False,
-          batch_size=512, epochs=10, evaluate=True, mc_samples=10, use_two_stream_model=False,
-          odometry_model_path='data/model_odometry', odometry_model_name='model', load_model=False, **model_kwargs):
+          batch_size=128, epochs=20, evaluate=True, train_model=True, mc_samples=10, use_two_stream_model=False,
+          odometry_model_path='data/model_odometry', odometry_model_name='model', load_model=False,
+          shuffle=True, use_inverse_data=False, force_load_data=False, log_dir='data\\logs\\', **model_kwargs):
 
     model_kwargs = dict(locals(), **model_kwargs)
     del model_kwargs['model_kwargs'] # del duplicate values
-    print(model_kwargs)
 
     #DATA
     #odometry
     odometry_pickle_path_test = 'data/pickles/test_odometry.p'
     odometry_pickle_path_train = 'data/pickles/train_odometry.p'
 
-    odometry_x_test, odometry_y_test = get_odometry('data/tracks/tracks_test.h5', 'data/odometry/test',
-                                                    in_frames, out_frames)
-    odometry_x_train, odometry_y_train = get_odometry('data/tracks/tracks_train.h5', 'data/odometry/train',
-                                                      in_frames, out_frames)
+    if force_load_data:
+        odometry_x_test, odometry_y_test = get_odometry('data/tracks/tracks_test.h5', 'data/odometry/test',
+                                                        in_frames, out_frames)
+        odometry_x_train, odometry_y_train = get_odometry('data/tracks/tracks_train.h5', 'data/odometry/train',
+                                                          in_frames, out_frames)
 
-    save_pickle(odometry_pickle_path_test, (odometry_x_test, odometry_y_test))
-    save_pickle(odometry_pickle_path_train, (odometry_x_train, odometry_y_train))
+        save_pickle(odometry_pickle_path_test, (odometry_x_test, odometry_y_test))
+        save_pickle(odometry_pickle_path_train, (odometry_x_train, odometry_y_train))
 
     odometry_x_test, odometry_y_test = load_pickle(odometry_pickle_path_test)
     odometry_x_train, odometry_y_train = load_pickle(odometry_pickle_path_train)
-    print('[+] Odometry loaded train shapes x: %s y: %s' % (odometry_x_train.shape, odometry_y_train.shape))
-
 
     #loading tracks
     tracks_pickle_path_test = 'data/pickles/test_tracks.p'
     tracks_pickle_path_train = 'data/pickles/train_tracks.p'
     tracks_pickle_path_inverse_train = 'data/pickles/inverse_train_tracks.p'
 
-    test_x, test_y = get_data_set(in_frames, out_frames, 'data/tracks/tracks_test.h5', diff_fn=diff_fn)
-    train_x, train_y = get_data_set(in_frames, out_frames, 'data/tracks/tracks_train.h5', diff_fn=diff_fn)
-    inverse_train_x, inverse_train_y = get_data_set(in_frames, out_frames, 'data/tracks/tracks_train.h5',
-                                                    diff_fn=diff_fn, use_inverse_bbs=True)
+    if force_load_data:
+        test_x, test_y = get_data_set(in_frames, out_frames, 'data/tracks/tracks_test.h5', diff_fn=diff_fn)
+        train_x, train_y = get_data_set(in_frames, out_frames, 'data/tracks/tracks_train.h5', diff_fn=diff_fn)
+        inverse_train_x, inverse_train_y = get_data_set(in_frames, out_frames, 'data/tracks/tracks_train.h5',
+                                                        diff_fn=diff_fn, use_inverse_bbs=True)
 
-    save_pickle(tracks_pickle_path_test, (test_x, test_y))
-    save_pickle(tracks_pickle_path_train, (train_x, train_y))
-    save_pickle(tracks_pickle_path_inverse_train, (inverse_train_x, inverse_train_y))
+        save_pickle(tracks_pickle_path_test, (test_x, test_y))
+        save_pickle(tracks_pickle_path_train, (train_x, train_y))
+        save_pickle(tracks_pickle_path_inverse_train, (inverse_train_x, inverse_train_y))
 
     test_x, test_y = load_pickle(tracks_pickle_path_test)
     train_x, train_y = load_pickle(tracks_pickle_path_train)
     inverse_train_x, inverse_train_y = load_pickle(tracks_pickle_path_inverse_train)
-    print('[+] Tracks loaded train shapes x: %s y: %s' % (train_x.shape, train_y.shape))
-
-    # concatenate train inverse bbs with normal bbs
-    train_x = np.concatenate([train_x, inverse_train_x], axis=0)
-    train_y = np.concatenate([train_y, inverse_train_y], axis=0)
 
     #concatenate odometry with itself because inverse bbs were added
     inverse_odometry_x_train = np.copy(odometry_x_train)
@@ -105,8 +94,15 @@ def train(model_name, model_path='data/model', in_frames=8, out_frames=15, diff_
     inverse_odometry_y_train = np.copy(odometry_y_train)
     inverse_odometry_y_train[:, :, 1] = inverse_odometry_y_train[:, :, 1] * -1
 
-    odometry_x_train = np.concatenate([odometry_x_train, inverse_odometry_x_train], axis=0)
-    odometry_y_train = np.concatenate([odometry_y_train, inverse_odometry_y_train], axis=0)
+    # concatenate train inverse bbs and odomety with normal bbs, odometry
+    if use_inverse_data:
+        train_x = np.concatenate([train_x, inverse_train_x], axis=0)
+        train_y = np.concatenate([train_y, inverse_train_y], axis=0)
+        odometry_x_train = np.concatenate([odometry_x_train, inverse_odometry_x_train], axis=0)
+        odometry_y_train = np.concatenate([odometry_y_train, inverse_odometry_y_train], axis=0)
+
+    print('[+] Odometry  train shapes x: %s y: %s' % (odometry_x_train.shape, odometry_y_train.shape))
+    print('[+] Tracks  train shapes x: %s y: %s' % (train_x.shape, train_y.shape))
 
     if normalize:
         tracks_mean = np.asarray([test_x.mean(), train_x.mean(),
@@ -150,34 +146,60 @@ def train(model_name, model_path='data/model', in_frames=8, out_frames=15, diff_
     if use_two_stream_model:
         model_odometry = LstmPredictor.load_model(os.path.join(odometry_model_path, odometry_model_name))
         print('[+] Predicting future odometry for model decoder')
-        odometry_pred_train, _, _ = predict(model_odometry, odometry_x_train, model_odometry.kwargs['mc_samples'],
-                                      model_odometry.predict_variance, False)
-        odometry_pred_test, _, _ = predict(model_odometry, odometry_x_test, model_odometry.kwargs['mc_samples'],
-                                            model_odometry.predict_variance, False)
-        model.fit([train_x, odometry_pred_train], train_y, batch_size=batch_size, epochs=epochs, shuffle=True)
-    else:
-        model.fit(train_x, train_y, batch_size=batch_size, epochs=epochs, shuffle=True)
+        odometry_pred_train, _,  = predict(model_odometry, odometry_x_train,
+                                           mc_samples, model_odometry.predict_variance)
+        odometry_pred_test, _,  = predict(model_odometry, odometry_x_test, mc_samples,
+                                          model_odometry.predict_variance)
+        odometry_pred_train = odometry_pred_train.mean(axis=0)
+        odometry_pred_test = odometry_pred_test.mean(axis=0)
 
-    # cant use model save method because of bug https://github.com/tensorflow/tensorflow/issues/34028
-    # model.save(os.path.join(base_path, model_name))
 
-    # saving weights and model_kwargs separately
-    model.save_model()
+    if train_model:
+        #split train data to val and train
+        validation_split = 0.2
+        val_size = int(train_x.shape[0] * (1 - validation_split))
+        val_x = [train_x[val_size:], odometry_pred_train[val_size:]] if use_two_stream_model else train_x[val_size:]
+        val_y = train_y[val_size:]
+        train_x = [train_x[:val_size], odometry_pred_train[:val_size]] if use_two_stream_model else train_x[:val_size]
+        train_y = train_y[:val_size]
+
+        callbacks = []
+        #call_back for validation with mc_sampling
+        # callbacks.append(TrainEvalCallback(predict, train_x, train_y, tracks_mean, tracks_std, mc_samples, False))
+        log_dir = log_dir + model_name
+        if not os.path.isdir(log_dir): os.mkdir(log_dir)
+        callbacks.append(tf.keras.callbacks.TensorBoard(log_dir=log_dir, profile_batch=0))
+
+        model.fit(train_x,  train_y, batch_size=batch_size, epochs=epochs,
+                  shuffle=shuffle, callbacks=callbacks, validation_data=(val_x, val_y))
+
+        # saving weights and model_kwargs separately
+        model.save_model()
 
     if evaluate:
-        pred, aletoric, epistemic = predict(model, [test_x, odometry_pred_test] if use_two_stream_model else test_x,
-                                            predict_var=model_kwargs['predict_variance'],
-                                            use_cum_sum=True if diff_fn == get_diff_array_v2 else False,
+        epistemic = None
+        pred, log_var = predict(model, [test_x, odometry_pred_test] if use_two_stream_model else test_x,
+                                            predict_var=model.predict_variance,
                                             mc_samples=mc_samples)
+        if log_var is not None:
+            aletoric = log_var.mean(axis=0)
+
         if normalize:
             test_y = inverse_standardization(test_y, tracks_mean, tracks_std)
             pred = inverse_standardization(pred, tracks_mean, tracks_std)
-            if aletoric is not None:
-                aletoric = aletoric * tracks_std # scale aletoric uncertainty
-            if epistemic is not None:
-                epistemic = inverse_standardization(epistemic, tracks_mean, tracks_std)
+            if log_var is not None:
+                aletoric = np.exp(aletoric)
+                # scale aletoric uncertainty
+                aletoric = (aletoric - aletoric.min()) / (aletoric.max() - aletoric.min())
+                aletoric = aletoric * tracks_std**2
+
+        if mc_samples > 1:
+            epistemic = pred.var(axis=0)
+
+        pred = pred.mean(axis=0)
 
         test_y = np.cumsum(test_y, axis=1) if diff_fn == get_diff_array_v2 else test_y
+        pred = np.cumsum(pred, axis=1) if diff_fn == get_diff_array_v2 else pred
         mse = np.square(pred - test_y).mean()
         print('MSE: %f Aletoric unc.: %s Epistemic unc: %s' % (mse,
                                                                str(aletoric.mean()) if aletoric is not None else '-',
@@ -186,33 +208,45 @@ def train(model_name, model_path='data/model', in_frames=8, out_frames=15, diff_
     return model
 
 
-def get_kwargs_from_cli(kwargs):
-    kwargs['model_name'] = kwargs.get('model_name', 'model_lv2_no_inverse')
-    kwargs['model_path'] = kwargs.get('model_path', 'data/model_two_stream')
-    kwargs['odometry_model_name'] = kwargs.get('odometry_model_name', 'model_no_inverse')
-    kwargs['odometry_model_path'] = kwargs.get('odometry_model_path', 'data/model_odometry')
-    kwargs['use_two_stream_model'] = strtobool(kwargs.get('use_two_stream_model', 'True'))
-    kwargs['num_prediction_steps'] = int(kwargs.get('num_prediction_steps', 15))
-    kwargs['weight_dropout'] = float(kwargs.get('weight_dropout', 0.35))
-    kwargs['unit_dropout'] = float(kwargs.get('unit_dropout', 0.))
-    kwargs['lam'] = float(kwargs.get('lam', 0.0001))
-    kwargs['predict_variance'] = strtobool(kwargs.get('predict_variance', 'True'))
-    kwargs['use_mc_dropout'] = strtobool(kwargs.get('use_mc_dropout', 'True'))
-    kwargs['mc_samples'] = int(kwargs.get('mc_samples', 10))
-    kwargs['epochs'] = int(kwargs.get('epochs', 20))
-    kwargs['batch_size'] = int(kwargs.get('batch_size', 512))
-    kwargs['num_units'] = int(kwargs.get('num_units', 256))
-    kwargs['normalize'] = strtobool(kwargs.get('normalize', 'True'))
-    kwargs['diff_fn'] = kwargs.get('diff_fn', 'get_diff_array')
-    kwargs['loss_fn'] = kwargs.get('loss_fn', 'heteroskedastic_loss_v2')
-    _losses = ['mse', heteroskedastic_loss.__name__, heteroskedastic_loss_v2.__name__]
-    if kwargs['loss_fn'] not in _losses:
-        raise ValueError('Unknown loss_fn  use one  these {}'.format(_losses))
-    kwargs['loss_fn'] = globals()[kwargs['loss_fn']]
-    kwargs['diff_fn'] = globals()[kwargs['diff_fn']] \
-        if kwargs['diff_fn'] in [get_diff_array_v2.__name__, get_diff_array.__name__] else get_diff_array
-    kwargs['evaluate'] = strtobool(kwargs.get('evaluate', 'True'))
-    kwargs['load_model'] = strtobool(kwargs.get('load_model', 'True'))
+def get_kwargs_from_cli():
+
+    def get_fn(loss_fn):
+        return globals()[loss_fn]
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--model_name', type=str, default='model')
+    parser.add_argument('--model_path', type=str, default='data/model')
+    parser.add_argument('--odometry_model_name', type=str, default='model')
+    parser.add_argument('--odometry_model_path', type=str, default='model/odometry')
+    parser.add_argument('--use_two_stream_model', type=strtobool, default=False, choices=[True, False])
+    parser.add_argument('--num_prediction_steps', type=int, default=15)
+    parser.add_argument('--in_frames', type=int, default=8)
+    parser.add_argument('--out_frames', type=int, default=15)
+    parser.add_argument('--weight_dropout', type=float, default=0.25)
+    parser.add_argument('--unit_dropout', type=float, default=0.)
+    parser.add_argument('--lam', type=float, default=0.0001)
+    parser.add_argument('--predict_variance', type=strtobool, default=True, choices=[True, False])
+    parser.add_argument('--use_mc_dropout', type=strtobool, default=True, choices=[True, False])
+    parser.add_argument('--mc_samples', type=int, default=10)
+    parser.add_argument('--epochs', type=int, default=20)
+    parser.add_argument('--batch_size', type=int, default=128)
+    parser.add_argument('--num_units', type=int, default=256)
+    parser.add_argument('--normalize', type=strtobool, default=True, choices=[True, False])
+    parser.add_argument('--loss_fn', type=get_fn, default=heteroskedastic_loss_v2,
+                        choices=[mse, heteroskedastic_loss_v2, heteroskedastic_loss])
+    parser.add_argument('--diff_fn', type=get_fn, default=get_diff_array, choices=[get_diff_array_v2, get_diff_array])
+    parser.add_argument('--evaluate', type=strtobool, default=True, choices=[True, False])
+    parser.add_argument('--train_model', type=strtobool, default=True, choices=[True, False])
+    parser.add_argument('--load_model', type=strtobool, default=False, choices=[True, False])
+    parser.add_argument('--shuffle', type=strtobool, default=True, choices=[True, False])
+    parser.add_argument('--force_load_data', type=strtobool, default=False, choices=[True, False])
+    args = parser.parse_args()
+
+    kwargs = dict(args._get_kwargs())
+
+    print('[+] Model parameters')
+    for k, v in kwargs.items():
+        print(k + " -> " + str(v))
 
     return kwargs
 
@@ -220,6 +254,5 @@ def get_kwargs_from_cli(kwargs):
 if __name__ == '__main__':
     np.random.seed(1444)  # random seed for train data shuffling
 
-    kwargs = dict(arg.split('=') for arg in sys.argv[1:])
-    kwargs = get_kwargs_from_cli(kwargs)
+    kwargs = get_kwargs_from_cli()
     model = train(**kwargs)
