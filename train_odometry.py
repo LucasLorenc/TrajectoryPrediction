@@ -74,7 +74,7 @@ def train(model_name, model_path='data/model', in_frames=8, out_frames=15, norma
     if train_model:
         model.fit(odometry_x_train, odometry_y_train, batch_size=batch_size, epochs=epochs, shuffle=True)
 
-        # saving weights and model_kwargs separately
+        # saving weights and model_kwargs separately...
         model.save_model()
 
     if evaluate:

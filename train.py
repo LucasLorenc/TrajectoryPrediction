@@ -173,7 +173,7 @@ def train(model_name, model_path='data/model', in_frames=8, out_frames=15, diff_
         model.fit(train_x,  train_y, batch_size=batch_size, epochs=epochs,
                   shuffle=shuffle, callbacks=callbacks, validation_data=(val_x, val_y))
 
-        # saving weights and model_kwargs separately
+        # saving weights and model_kwargs separately...
         model.save_model()
 
     if evaluate:
