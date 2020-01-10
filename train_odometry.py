@@ -78,6 +78,7 @@ def train(model_name, model_path='data/model', in_frames=8, out_frames=15, norma
         model.save_model()
 
     if evaluate:
+        aletoric = None
         epistemic = None
         pred, log_var = predict(model, odometry_x_test, predict_var=model.predict_variance, mc_samples=mc_samples)
 

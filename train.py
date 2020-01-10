@@ -178,6 +178,7 @@ def train(model_name, model_path='data/model', in_frames=8, out_frames=15, diff_
 
     if evaluate:
         epistemic = None
+        aletoric = None
         pred, log_var = predict(model, [test_x, odometry_pred_test] if use_two_stream_model else test_x,
                                             predict_var=model.predict_variance,
                                             mc_samples=mc_samples)
