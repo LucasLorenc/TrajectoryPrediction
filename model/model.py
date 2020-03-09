@@ -120,6 +120,7 @@ class LstmPredictor(BaseModel):
                                       kernel_dropout=weight_dropout,
                                       kernel_regularizer=tf.keras.regularizers.l2(lam),
                                       recurrent_regularizer=tf.keras.regularizers.l2(lam),
+                                      bias_regularizer=tf.keras.regularizers.l2(lam),
                                       use_mc_dropout=use_mc_dropout)
 
         self.repeat_vector = RepeatVector(num_prediction_steps)
@@ -131,6 +132,7 @@ class LstmPredictor(BaseModel):
                                       kernel_dropout=weight_dropout,
                                       kernel_regularizer=tf.keras.regularizers.l2(lam),
                                       recurrent_regularizer=tf.keras.regularizers.l2(lam),
+                                      bias_regularizer=tf.keras.regularizers.l2(lam),
                                       return_sequences=True,
                                       use_mc_dropout=use_mc_dropout)
 

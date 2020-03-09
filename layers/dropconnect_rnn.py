@@ -823,6 +823,14 @@ class DropConnectLSTM(RNN):
     return  self.cell.use_mc_dropout
 
   @property
+  def kernel_dropout(self):
+      return self.cell.kernel_dropout
+
+  @property
+  def recurrent_kernel_dropout(self):
+      return self.cell.recurrent_kernel_dropout
+
+  @property
   def implementation(self):
     return self.cell.implementation
 
