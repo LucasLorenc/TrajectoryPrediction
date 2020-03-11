@@ -181,6 +181,89 @@ def get_data_set(in_frames, out_frames, file_path, diff_fn=get_diff_array_v2, us
     return np.asarray(data_x, dtype=np.float32), np.asarray(data_y, dtype=np.float32)
 
 
+def get_whole_data_set(in_frames, out_frames, tracks_base_path, odometry_base_path, img_sequences_base_path,
+                       sequence_names=None, diff_fn=get_diff_array, load_img_paths=True,
+                       max_num_of_sequences=np.iinfo(np.int).max):
+    source_f = h5py.File(tracks_base_path, 'r')
+    seq_len = in_frames + out_frames
+
+    data_x, data_y = [], []
+    initial_bboxes = []
+    image_sequence_paths = []
+    odometry_data_x, odometry_data_y = [], []
+    initial_odometry = []
+
+    seq_counter = 0
+    for track_key in source_f:
+        if seq_counter >= max_num_of_sequences:
+            break
+        curr_track = json.loads(source_f[track_key].value.decode())
+        bboxes = curr_track['bboxes']
+        first_frame = curr_track['firstFrame']
+        last_frame = curr_track['lastFrame']
+
+        _, ff = os.path.split(first_frame)
+        params = ff.split('_')
+        current_sequence_name = params[0]
+
+        # if only certain sequences are needed
+        if sequence_names is not None:
+            if current_sequence_name not in sequence_names:
+                continue
+
+        if len(bboxes) >= in_frames + out_frames:
+
+            #img paths
+            image_paths = get_sequence_image_path(first_frame, last_frame, len(bboxes), img_sequences_base_path)
+            image_slices = slice_tracks(image_paths, seq_len)
+
+            for image_slice in image_slices:
+                image_sequence_paths.append(image_slice)
+
+            #bounding boxes
+            bbox_slices = slice_tracks(bboxes, seq_len)
+            for bbox_slice in bbox_slices:
+                initial_bb = bbox_slice[0]
+                diff_array = diff_fn(np.array(bbox_slice))
+                (x, y) = get_features_and_labels(diff_array, in_frames)
+                data_x.append(x)
+                data_y.append(y)
+                initial_bboxes.append(initial_bb)
+
+            #odometry
+            odometry = []
+            odometry_json_list = get_odometry_json(first_frame, last_frame, len(bboxes), odometry_base_path)
+            for json_path in odometry_json_list:
+                json_file = open(json_path, mode='r')
+                data = json.load(json_file)
+                yaw_rate = data['yawRate']
+                speed = data['speed']
+                odometry.append([speed, yaw_rate])
+                json_file.close()
+
+            odometry_slices = slice_tracks(odometry, seq_len)
+            for odometry_slice in odometry_slices:
+                initial_odo = odometry_slice[0]
+                odometry_slice = odometry_slice[1:]
+                x, y = get_features_and_labels_odometry(odometry_slice, in_frames)
+                odometry_data_x.append(x)
+                odometry_data_y.append(y)
+                initial_odometry.append(initial_odo)
+
+            seq_counter += 1
+
+
+    data_x = np.asarray(data_x)
+    data_y = np.asarray(data_y)
+    initial_bboxes = np.asarray(initial_bboxes, dtype=np.int)
+    initial_bboxes = initial_bboxes[:, :4]
+    odometry_data_x = np.asarray(odometry_data_x)
+    odometry_data_y = np.asarray(odometry_data_y)
+    initial_odometry = np.asarray(initial_odometry)
+
+    return data_x, data_y, initial_bboxes, image_sequence_paths, odometry_data_x, odometry_data_y, initial_odometry
+
+
 def clean_data(data_x, data_y, min_x, max_x, min_y, max_y):
     cleaned_data_x = []
     cleaned_data_y = []

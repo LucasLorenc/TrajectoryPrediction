@@ -6,6 +6,7 @@ import cv2
 import argparse
 import matplotlib.pyplot as plt
 from utils import *
+from sequence import Sequence
 from model.model import *
 from model.callbacks import *
 from tensorflow.keras.losses import mse
@@ -32,78 +33,56 @@ def predict(model, test_x, mc_samples=10, predict_var=True):
     return pred, logvar
 
 
-def cross_validation(data_x, data_y):
-    from sklearn.model_selection import KFold
-    data_train = []
-    data_test = []
-    kf = KFold(n_splits=3, random_state=None, shuffle=False)
-    for train_index, test_index in kf.split(data_x, data_y):
-        data_train.append((data_x[train_index], data_y[train_index]))
-        data_test.append((data_x[test_index], data_y[test_index]))
-
-    return data_train, data_test
-
-
 def train(model_name, model_path='data/model', in_frames=8, out_frames=15, diff_fn=get_diff_array_v2, normalize=False,
-          batch_size=128, epochs=20, evaluate=True, train_model=True, mc_samples=10, use_two_stream_model=False,
-          odometry_model_path='data/model_odometry', odometry_model_name='model', load_model=False,
-          shuffle=True, use_inverse_data=False, force_load_data=False, log_dir='data\\logs\\', **model_kwargs):
+          batch_size=128, epochs=20, evaluate=True, train_model=True, mc_samples=10, use_visual_features=False,
+          predict_variance=True, odometry_model_path='data/model_odometry', odometry_model_name='model',
+          load_model=False, shuffle=True, use_inverse_data=False, force_load_data=False, log_dir='data\\logs\\',
+          imgs_base_path_test = 'data/imgs/test', tracks_base_path_test = 'data/tracks/tracks_test.h5',
+          odometry_base_path_test = 'data/odometry/test', imgs_base_path_train = 'data/imgs/train',
+          tracks_base_path_train = 'data/tracks/tracks_train.h5', odometry_base_path_train = 'data/odometry/train',
+          **model_kwargs):
 
     model_kwargs = dict(locals(), **model_kwargs)
     del model_kwargs['model_kwargs'] # del duplicate values
 
     #DATA
-    #odometry
-    odometry_pickle_path_test = 'data/pickles/test_odometry.p'
-    odometry_pickle_path_train = 'data/pickles/train_odometry.p'
+    dataset_pickle_path_test = 'data/pickles/dataset_test.p'
+    dataset_pickle_path_train = 'data/pickles/dataset_train.p'
 
     if force_load_data:
-        odometry_x_test, odometry_y_test = get_odometry('data/tracks/tracks_test.h5', 'data/odometry/test',
-                                                        in_frames, out_frames)
-        odometry_x_train, odometry_y_train = get_odometry('data/tracks/tracks_train.h5', 'data/odometry/train',
-                                                          in_frames, out_frames)
+        # get data set
+        test_dataset= get_whole_data_set(in_frames,
+                                         out_frames,
+                                         diff_fn=diff_fn,
+                                         tracks_base_path=tracks_base_path_test,
+                                         odometry_base_path=odometry_base_path_test,
+                                         img_sequences_base_path=imgs_base_path_test,
+                                         load_img_paths=True if use_visual_features else False)
 
-        save_pickle(odometry_pickle_path_test, (odometry_x_test, odometry_y_test))
-        save_pickle(odometry_pickle_path_train, (odometry_x_train, odometry_y_train))
+        test_x, test_y, _, image_sequence_paths_test, odometry_x_test, odometry_y_test, _ = test_dataset
+        save_pickle(dataset_pickle_path_test, test_dataset)
 
-    odometry_x_test, odometry_y_test = load_pickle(odometry_pickle_path_test)
-    odometry_x_train, odometry_y_train = load_pickle(odometry_pickle_path_train)
+        train_dataset = get_whole_data_set(in_frames,
+                                           out_frames,
+                                           diff_fn=diff_fn,
+                                           tracks_base_path=tracks_base_path_train,
+                                           odometry_base_path=odometry_base_path_train,
+                                           img_sequences_base_path=imgs_base_path_train,
+                                           load_img_paths=True if use_visual_features else False)
 
-    #loading tracks
-    tracks_pickle_path_test = 'data/pickles/test_tracks.p'
-    tracks_pickle_path_train = 'data/pickles/train_tracks.p'
-    tracks_pickle_path_inverse_train = 'data/pickles/inverse_train_tracks.p'
+        train_x, train_y, _, image_sequence_paths_train, odometry_x_train, odometry_y_train, _ = train_dataset
+        save_pickle(dataset_pickle_path_train, train_dataset)
 
-    if force_load_data:
-        test_x, test_y = get_data_set(in_frames, out_frames, 'data/tracks/tracks_test.h5', diff_fn=diff_fn)
-        train_x, train_y = get_data_set(in_frames, out_frames, 'data/tracks/tracks_train.h5', diff_fn=diff_fn)
-        inverse_train_x, inverse_train_y = get_data_set(in_frames, out_frames, 'data/tracks/tracks_train.h5',
-                                                        diff_fn=diff_fn, use_inverse_bbs=True)
+    else:
+        test_x, test_y, _, image_sequence_paths_test, odometry_x_test, odometry_y_test, _ \
+            = load_pickle(dataset_pickle_path_test)
+        train_x, train_y, _, image_sequence_paths_train, odometry_x_train, odometry_y_train, _ \
+            = load_pickle(dataset_pickle_path_train)
 
-        save_pickle(tracks_pickle_path_test, (test_x, test_y))
-        save_pickle(tracks_pickle_path_train, (train_x, train_y))
-        save_pickle(tracks_pickle_path_inverse_train, (inverse_train_x, inverse_train_y))
-
-    test_x, test_y = load_pickle(tracks_pickle_path_test)
-    train_x, train_y = load_pickle(tracks_pickle_path_train)
-    inverse_train_x, inverse_train_y = load_pickle(tracks_pickle_path_inverse_train)
-
-    #concatenate odometry with itself because inverse bbs were added
-    inverse_odometry_x_train = np.copy(odometry_x_train)
-    inverse_odometry_x_train[:, :, 1] = inverse_odometry_x_train[:, :, 1] * -1 #iversion of steering angle
-    inverse_odometry_y_train = np.copy(odometry_y_train)
-    inverse_odometry_y_train[:, :, 1] = inverse_odometry_y_train[:, :, 1] * -1
-
-    # concatenate train inverse bbs and odomety with normal bbs, odometry
-    if use_inverse_data:
-        train_x = np.concatenate([train_x, inverse_train_x], axis=0)
-        train_y = np.concatenate([train_y, inverse_train_y], axis=0)
-        odometry_x_train = np.concatenate([odometry_x_train, inverse_odometry_x_train], axis=0)
-        odometry_y_train = np.concatenate([odometry_y_train, inverse_odometry_y_train], axis=0)
-
-    print('[+] Odometry  train shapes x: %s y: %s' % (odometry_x_train.shape, odometry_y_train.shape))
     print('[+] Tracks  train shapes x: %s y: %s' % (train_x.shape, train_y.shape))
+    print('[+] Odometry  train shapes x: %s y: %s' % (odometry_x_train.shape, odometry_y_train.shape))
 
+    # normalizing data features separately with standard scaling
     if normalize:
         tracks_mean = np.asarray([test_x.mean(), train_x.mean(),
                                 test_y.mean(), train_y.mean()]).mean()
@@ -136,31 +115,21 @@ def train(model_name, model_path='data/model', in_frames=8, out_frames=15, diff_
     model_kwargs['model_input_shape'] = train_x.shape[1:]
     model_kwargs['model_output_dim'] = train_y.shape[-1]
 
-    model_cls = TwoStreamLstmPredictor if use_two_stream_model else LstmPredictor
     if load_model:
-        model = model_cls.load_model(os.path.join(model_path, model_name))
+        model = tf.keras.models.load_model(model_path, custom_objects={'DropConnectDense': DropConnectDense,
+                                                                       'DropConnectLSTM': DropConnectLSTM})
     else:
-        model = build_model(model_cls=model_cls, **model_kwargs)
-
-    # two stream model
-    if use_two_stream_model:
-        model_odometry = LstmPredictor.load_model(os.path.join(odometry_model_path, odometry_model_name))
-        print('[+] Predicting future odometry for model decoder')
-        odometry_pred_train, _,  = predict(model_odometry, odometry_x_train,
-                                           mc_samples, model_odometry.predict_variance)
-        odometry_pred_test, _,  = predict(model_odometry, odometry_x_test, mc_samples,
-                                          model_odometry.predict_variance)
-        odometry_pred_train = odometry_pred_train.mean(axis=0)
-        odometry_pred_test = odometry_pred_test.mean(axis=0)
-
+        model = get_model_visual(**model_kwargs) if use_visual_features else get_model(**model_kwargs)
 
     if train_model:
         #split train data to val and train
-        validation_split = 0.2
+        validation_split = 0.1
         val_size = int(train_x.shape[0] * (1 - validation_split))
-        val_x = [train_x[val_size:], odometry_pred_train[val_size:]] if use_two_stream_model else train_x[val_size:]
+        val_x = train_x[val_size:]
+        val_image_sequence_paths = image_sequence_paths_train[val_size:]
         val_y = train_y[val_size:]
-        train_x = [train_x[:val_size], odometry_pred_train[:val_size]] if use_two_stream_model else train_x[:val_size]
+        train_x = train_x[:val_size]
+        train_image_sequence_paths = image_sequence_paths_train[:val_size]
         train_y = train_y[:val_size]
 
         callbacks = []
@@ -170,18 +139,25 @@ def train(model_name, model_path='data/model', in_frames=8, out_frames=15, diff_
         if not os.path.isdir(log_dir): os.mkdir(log_dir)
         callbacks.append(tf.keras.callbacks.TensorBoard(log_dir=log_dir, profile_batch=0))
 
-        model.fit(train_x,  train_y, batch_size=batch_size, epochs=epochs,
-                  shuffle=shuffle, callbacks=callbacks, validation_data=(val_x, val_y))
 
-        # saving weights and model_kwargs separately...
-        model.save_model()
+        train_gen = Sequence(train_x, train_y, train_image_sequence_paths if use_visual_features else None,
+                             batch_size=batch_size)
+        val_gen = Sequence(val_x, val_y, val_image_sequence_paths if use_visual_features else  None,
+                           batch_size=batch_size)
+
+        model.fit(train_gen, epochs=epochs, callbacks=callbacks, validation_data=val_gen)
+
+        # saving model
+        model.save(os.path.join(model_path, model_name))
 
     if evaluate:
         epistemic = None
         aletoric = None
-        pred, log_var = predict(model, [test_x, odometry_pred_test] if use_two_stream_model else test_x,
-                                            predict_var=model.predict_variance,
-                                            mc_samples=mc_samples)
+
+        test_gen = Sequence(test_x, test_y, image_sequence_paths_test if use_visual_features else None,
+                            batch_size=batch_size)
+        pred, log_var = predict(model,test_gen,predict_var=predict_variance, mc_samples=mc_samples)
+
         if log_var is not None:
             aletoric = log_var.mean(axis=0)
 
@@ -217,9 +193,9 @@ def get_kwargs_from_cli():
     parser = argparse.ArgumentParser()
     parser.add_argument('--model_name', type=str, default='model')
     parser.add_argument('--model_path', type=str, default='data/model')
-    parser.add_argument('--odometry_model_name', type=str, default='model')
-    parser.add_argument('--odometry_model_path', type=str, default='model/odometry')
-    parser.add_argument('--use_two_stream_model', type=strtobool, default=False, choices=[True, False])
+    parser.add_argument('--imgs_base_path_test', type=str, default='data/imgs/test')
+    parser.add_argument('--imgs_base_path_train', type=str, default='data/imgs/train')
+    parser.add_argument('--use_visual_features', type=strtobool, default=False, choices=[True, False])
     parser.add_argument('--num_prediction_steps', type=int, default=15)
     parser.add_argument('--in_frames', type=int, default=8)
     parser.add_argument('--out_frames', type=int, default=15)
