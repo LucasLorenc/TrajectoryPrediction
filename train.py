@@ -10,7 +10,6 @@ from sequence import Sequence
 from model.model import *
 from layers.dropconnect_rnn import DropConnectLSTM
 from layers.dropconnect_dense import DropConnectDense
-from model.callbacks import *
 from tensorflow.keras.losses import mse
 from distutils.util import strtobool
 
