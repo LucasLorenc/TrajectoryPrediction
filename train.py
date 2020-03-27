@@ -138,8 +138,8 @@ def train(model_name, model_path='data/model', in_frames=8, out_frames=15, diff_
         callbacks = []
         #call_back for validation with mc_sampling
         # callbacks.append(TrainEvalCallback(predict, train_x, train_y, tracks_mean, tracks_std, mc_samples, False))
-        log_dir = log_dir + model_name
-        if not os.path.isdir(log_dir): os.mkdir(log_dir)
+        log_dir = log_dir + model_name.split('.')[0]
+        if not os.path.isdir(log_dir): os.makedirs(log_dir)
         callbacks.append(tf.keras.callbacks.TensorBoard(log_dir=log_dir, profile_batch=0))
 
 
