@@ -3,13 +3,19 @@ import math
 import cv2
 
 from tensorflow.keras.utils import Sequence
+from operator import itemgetter
 
 
 class Sequence(Sequence):
-    def __init__(self, data_x, data_y, img_paths=None, batch_size=128):
+    def __init__(self, data_x, data_y, img_paths=None, batch_size=128, shuffle=True):
         self.x, self.y = data_x, data_y
         self.batch_size = batch_size
         self.img_paths = img_paths
+
+        self.shuffle = shuffle
+        self.perm = None
+        if shuffle:
+            self.shuffle_dataset()
 
     def __len__(self):
         return math.ceil(self.x.shape[0] / self.batch_size)
@@ -26,8 +32,9 @@ class Sequence(Sequence):
         return batch_x, batch_y
 
     def on_epoch_end(self):
-        #do shuffle
-        pass
+        #do shuffling
+        if self.shuffle:
+            self.shuffle_dataset()
 
     def load_images(self, idx, img_idx):
         images = []
@@ -38,4 +45,12 @@ class Sequence(Sequence):
             img = cv2.imread(img_path)
             images.append(img)
 
-        return np.asarray(images, dtype='uint8')
+        images = np.asarray(images) / 255
+        return images.astype(dtype='float32')
+
+    def shuffle_dataset(self):
+        self.perm = perm = np.random.permutation(self.x.shape[0])
+        self.x = self.x[perm]
+        self.y = self.y[perm]
+        if self.img_paths is not None:
+            self.img_paths = [self.img_paths[i].copy() for i in list(perm)]

@@ -299,6 +299,7 @@ def inverse_standardization(x, mean, std):
 
 
 def save_pickle(path, object):
+    if not os.path.isdir(os.path.dirname(path)): os.mkdir(os.path.dirname(path))
     with open(path, 'wb') as handle:
         pickle.dump(object, handle)
 
@@ -306,3 +307,28 @@ def save_pickle(path, object):
 def load_pickle(path):
     with open(path, 'rb') as file:
         return pickle.load(file)
+
+
+def resize_dataset(base_input_path, base_out_path, base_out_path_hflip=None, width=300, height=150):
+    sequences = os.listdir(base_input_path)
+    print("\n[+] Risizing dataset at: " + base_input_path + '\n')
+    for seq_name in sequences:
+        print(seq_name)
+        img_paths = os.listdir(os.path.join(base_input_path, seq_name))
+
+        if not os.path.exists(os.path.join(base_out_path, seq_name)):
+            os.makedirs(os.path.join(base_out_path, seq_name))
+
+        if base_out_path_hflip is not None:
+            if not os.path.exists(os.path.join(base_out_path_hflip, seq_name)):
+                os.makedirs(os.path.join(base_out_path_hflip, seq_name))
+
+        for img_name in img_paths:
+            img = cv2.imread(os.path.join(base_input_path, seq_name, img_name))
+
+            img = cv2.resize(img, (width, height), cv2.INTER_AREA)
+            cv2.imwrite(os.path.join(base_out_path, seq_name, img_name), img)
+
+            if base_out_path_hflip is not None:
+                img_hflip = cv2.flip(img, 1)
+                cv2.imwrite(os.path.join(base_out_path_hflip, seq_name, img_name), img_hflip)

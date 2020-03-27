@@ -8,6 +8,8 @@ import matplotlib.pyplot as plt
 from utils import *
 from sequence import Sequence
 from model.model import *
+from layers.dropconnect_rnn import DropConnectLSTM
+from layers.dropconnect_dense import DropConnectDense
 from model.callbacks import *
 from tensorflow.keras.losses import mse
 from distutils.util import strtobool
@@ -36,7 +38,7 @@ def predict(model, test_x, mc_samples=10, predict_var=True):
 def train(model_name, model_path='data/model', in_frames=8, out_frames=15, diff_fn=get_diff_array_v2, normalize=False,
           batch_size=128, epochs=20, evaluate=True, train_model=True, mc_samples=10, use_visual_features=False,
           predict_variance=True, odometry_model_path='data/model_odometry', odometry_model_name='model',
-          load_model=False, shuffle=True, use_inverse_data=False, force_load_data=False, log_dir='data\\logs\\',
+          load_model=False, shuffle=True, use_inverse_data=False, force_load_data=False, log_dir='data/logs/',
           imgs_base_path_test = 'data/imgs/test', tracks_base_path_test = 'data/tracks/tracks_test.h5',
           odometry_base_path_test = 'data/odometry/test', imgs_base_path_train = 'data/imgs/train',
           tracks_base_path_train = 'data/tracks/tracks_train.h5', odometry_base_path_train = 'data/odometry/train',
@@ -113,17 +115,19 @@ def train(model_name, model_path='data/model', in_frames=8, out_frames=15, diff_
     train_x = np.concatenate([train_x, odometry_x_train], axis=-1)
 
     model_kwargs['model_input_shape'] = train_x.shape[1:]
+    model_kwargs['model_visual_input_shape'] = [300, 150, 3]
     model_kwargs['model_output_dim'] = train_y.shape[-1]
 
     if load_model:
-        model = tf.keras.models.load_model(model_path, custom_objects={'DropConnectDense': DropConnectDense,
-                                                                       'DropConnectLSTM': DropConnectLSTM})
+        model = tf.keras.models.load_model(os.path.join(model_path, model_name),
+                                           custom_objects={'DropConnectDense': DropConnectDense,
+                                                           'DropConnectLSTM': DropConnectLSTM})
     else:
         model = get_model_visual(**model_kwargs) if use_visual_features else get_model(**model_kwargs)
 
     if train_model:
         #split train data to val and train
-        validation_split = 0.1
+        validation_split = 0.2
         val_size = int(train_x.shape[0] * (1 - validation_split))
         val_x = train_x[val_size:]
         val_image_sequence_paths = image_sequence_paths_train[val_size:]
@@ -155,8 +159,8 @@ def train(model_name, model_path='data/model', in_frames=8, out_frames=15, diff_
         aletoric = None
 
         test_gen = Sequence(test_x, test_y, image_sequence_paths_test if use_visual_features else None,
-                            batch_size=batch_size)
-        pred, log_var = predict(model,test_gen,predict_var=predict_variance, mc_samples=mc_samples)
+                            batch_size=batch_size, shuffle=False)
+        pred, log_var = predict(model, test_gen, predict_var=predict_variance, mc_samples=mc_samples)
 
         if log_var is not None:
             aletoric = log_var.mean(axis=0)
@@ -193,8 +197,15 @@ def get_kwargs_from_cli():
     parser = argparse.ArgumentParser()
     parser.add_argument('--model_name', type=str, default='model')
     parser.add_argument('--model_path', type=str, default='data/model')
+
     parser.add_argument('--imgs_base_path_test', type=str, default='data/imgs/test')
     parser.add_argument('--imgs_base_path_train', type=str, default='data/imgs/train')
+
+    parser.add_argument('--odometry_base_path_test', type=str, default='data/odometry/test')
+    parser.add_argument('--odometry_base_path_train', type=str, default='data/odometry/train')
+    parser.add_argument('--tracks_base_path_train', type=str, default='data/tracks/tracks_train.h5')
+    parser.add_argument('--tracks_base_path_test', type=str, default='data/tracks/tracks_test.h5')
+
     parser.add_argument('--use_visual_features', type=strtobool, default=False, choices=[True, False])
     parser.add_argument('--num_prediction_steps', type=int, default=15)
     parser.add_argument('--in_frames', type=int, default=8)

@@ -117,7 +117,7 @@ def get_model(model_name, model_path, model_input_shape, model_output_dim, loss_
 def get_model_visual(model_name, model_path, model_input_shape, model_output_dim, model_visual_input_shape, loss_fn,
                      predict_variance, num_prediction_steps=15, weight_dropout=0., unit_dropout=0.35, lam=0.0001,
                      use_mc_dropout=True, num_units=256, cnn_extractor=tf.keras.applications.InceptionResNetV2,
-                     **kwargs):
+                     vf_vector_size=64, **kwargs):
 
     inputs = tf.keras.Input(model_input_shape)
     visual_inputs = tf.keras.Input(model_visual_input_shape)
@@ -133,7 +133,7 @@ def get_model_visual(model_name, model_path, model_input_shape, model_output_dim
                              bias_regularizer=tf.keras.regularizers.l2(lam),
                              activation=None)(visual_features_flat)
 
-    w_in = Dense(64,
+    w_in = Dense(vf_vector_size,
                      kernel_regularizer=tf.keras.regularizers.l2(lam),
                      bias_regularizer=tf.keras.regularizers.l2(lam),
                      activation=tf.nn.relu)(inputs)
@@ -179,7 +179,7 @@ def get_model_visual(model_name, model_path, model_input_shape, model_output_dim
 
     # freeze weights of visual features pretrained cnn extractor
     for layer in cnn_model.layers:
-        layer.trainable = False
+        layer.trainable = True
 
     model = tf.keras.models.Model(inputs=[inputs, visual_inputs], outputs=y)
     model.compile(optimizer='adam', loss=loss_fn)
