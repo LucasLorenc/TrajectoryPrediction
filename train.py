@@ -11,6 +11,7 @@ from model.model import *
 from layers.dropconnect_rnn import DropConnectLSTM
 from layers.dropconnect_dense import DropConnectDense
 from tensorflow.keras.losses import mse
+from tensorflow.keras.callbacks import ModelCheckpoint
 from distutils.util import strtobool
 
 # learning rate schedule
@@ -118,9 +119,12 @@ def train(model_name, model_path='data/model', in_frames=8, out_frames=15, diff_
     model_kwargs['model_output_dim'] = train_y.shape[-1]
 
     if load_model:
+        #workaround Unknown loss function compile model after load_model
         model = tf.keras.models.load_model(os.path.join(model_path, model_name),
                                            custom_objects={'DropConnectDense': DropConnectDense,
-                                                           'DropConnectLSTM': DropConnectLSTM})
+                                                           'DropConnectLSTM': DropConnectLSTM},
+                                           compile=False)
+        model.compile(optimizer='adam', loss=model_kwargs['loss_fn'])
     else:
         model = get_model_visual(**model_kwargs) if use_visual_features else get_model(**model_kwargs)
 
@@ -138,6 +142,10 @@ def train(model_name, model_path='data/model', in_frames=8, out_frames=15, diff_
         callbacks = []
         #call_back for validation with mc_sampling
         # callbacks.append(TrainEvalCallback(predict, train_x, train_y, tracks_mean, tracks_std, mc_samples, False))
+        if not os.path.isdir(model_path): os.makedirs(model_path)
+        checkpoint_cb = ModelCheckpoint(filepath=os.path.join(model_path, model_name), monitor='val_loss',mode='min',
+                                           save_best_only=True)
+        callbacks.append(checkpoint_cb)
         log_dir = log_dir + model_name.split('.')[0]
         if not os.path.isdir(log_dir): os.makedirs(log_dir)
         callbacks.append(tf.keras.callbacks.TensorBoard(log_dir=log_dir, profile_batch=0))
