@@ -4,6 +4,7 @@ import sys
 import tensorflow as tf
 import cv2
 import argparse
+import configparser
 import matplotlib.pyplot as plt
 from utils import *
 from sequence import Sequence
@@ -202,48 +203,50 @@ def get_kwargs_from_cli():
         return globals()[loss_fn]
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model_name', type=str, default='model')
-    parser.add_argument('--model_path', type=str, default='data/model')
-
-    parser.add_argument('--imgs_base_path_test', type=str, default='data/imgs/test')
-    parser.add_argument('--imgs_base_path_train', type=str, default='data/imgs/train')
-
-    parser.add_argument('--odometry_base_path_test', type=str, default='data/odometry/test')
-    parser.add_argument('--odometry_base_path_train', type=str, default='data/odometry/train')
-    parser.add_argument('--tracks_base_path_train', type=str, default='data/tracks/tracks_train.h5')
-    parser.add_argument('--tracks_base_path_test', type=str, default='data/tracks/tracks_test.h5')
-
-    parser.add_argument('--use_visual_features', type=strtobool, default=False, choices=[True, False])
-    parser.add_argument('--num_prediction_steps', type=int, default=15)
-    parser.add_argument('--in_frames', type=int, default=8)
-    parser.add_argument('--out_frames', type=int, default=15)
-    parser.add_argument('--weight_dropout', type=float, default=0.25)
-    parser.add_argument('--unit_dropout', type=float, default=0.)
-    parser.add_argument('--lam', type=float, default=0.0001)
-    parser.add_argument('--predict_variance', type=strtobool, default=True, choices=[True, False])
-    parser.add_argument('--use_mc_dropout', type=strtobool, default=True, choices=[True, False])
-    parser.add_argument('--mc_samples', type=int, default=10)
-    parser.add_argument('--epochs', type=int, default=20)
-    parser.add_argument('--batch_size', type=int, default=128)
-    parser.add_argument('--num_units', type=int, default=256)
-    parser.add_argument('--normalize', type=strtobool, default=True, choices=[True, False])
-    parser.add_argument('--loss_fn', type=get_fn, default=heteroskedastic_loss_v2,
-                        choices=[mse, heteroskedastic_loss_v2, heteroskedastic_loss])
-    parser.add_argument('--diff_fn', type=get_fn, default=get_diff_array, choices=[get_diff_array_v2, get_diff_array])
+    parser.add_argument('--model_config', type=str, default='configuration/dc_lstm_vf.ini')
     parser.add_argument('--evaluate', type=strtobool, default=True, choices=[True, False])
     parser.add_argument('--train_model', type=strtobool, default=True, choices=[True, False])
     parser.add_argument('--load_model', type=strtobool, default=False, choices=[True, False])
-    parser.add_argument('--shuffle', type=strtobool, default=True, choices=[True, False])
-    parser.add_argument('--force_load_data', type=strtobool, default=False, choices=[True, False])
+
     args = parser.parse_args()
 
     kwargs = dict(args._get_kwargs())
+
+    data_kwargs = get_kwargs_from_config('configuration/data.ini', 'data')
+    model_kwargs = get_kwargs_from_config(kwargs['model_config'], 'model')
+
+    model_kwargs['use_visual_features'] = strtobool(model_kwargs.get('use_visual_features', False))
+    model_kwargs['num_prediction_steps'] = int(model_kwargs.get('num_prediction_steps', 15))
+    model_kwargs['in_frames'] = int(model_kwargs.get('in_frames', 8))
+    model_kwargs['out_frames'] = int(model_kwargs.get('out_frames', 15))
+    model_kwargs['weight_dropout'] = float(model_kwargs.get('weight_dropout', 0))
+    model_kwargs['unit_dropout'] = float(model_kwargs.get('unit_dropout', 0))
+    model_kwargs['lam'] = float(model_kwargs.get('lam', 0))
+    model_kwargs['predict_variance'] = strtobool(model_kwargs.get('predict_variance', True))
+    model_kwargs['use_mc_dropout'] = strtobool(model_kwargs.get('use_mc_dropout', True))
+    model_kwargs['mc_samples'] = int(model_kwargs.get('mc_samples', 10))
+    model_kwargs['epochs'] = int(model_kwargs.get('epochs', 20))
+    model_kwargs['batch_size'] = int(model_kwargs.get('batch_size', 128))
+    model_kwargs['num_units'] = int(model_kwargs.get('num_units', 256))
+    model_kwargs['normalize'] = strtobool(model_kwargs.get('normalize', True))
+    model_kwargs['loss_fn'] = get_fn(model_kwargs.get('loss_fn', 'heteroskedastic_loss_v2'))
+    model_kwargs['diff_fn'] = get_fn(model_kwargs.get('diff_fn', 'get_diff_array'))
+    model_kwargs['shuffle'] = strtobool(model_kwargs.get('shuffle', True))
+    model_kwargs['force_load_data'] = strtobool(model_kwargs.get('force_load_data', False))
+
+    kwargs = dict(kwargs, **data_kwargs, **model_kwargs)
 
     print('[+] Model parameters')
     for k, v in kwargs.items():
         print(k + " -> " + str(v))
 
     return kwargs
+
+
+def get_kwargs_from_config(path, section):
+    config = configparser.ConfigParser()
+    config.read(path)
+    return config._sections[section]
 
 
 if __name__ == '__main__':
