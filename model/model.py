@@ -4,6 +4,8 @@ import os
 
 from tensorflow.keras import Model
 from tensorflow.keras.layers import Concatenate, Dense, LSTM, RepeatVector
+from tensorflow.keras.layers import Conv2D, Conv2DTranspose, Concatenate, BatchNormalization, Activation, MaxPooling2D
+from tensorflow.keras.layers import UpSampling2D, SpatialDropout2D, Input, LeakyReLU, ReLU, Dense, Flatten
 
 from layers.dropconnect_rnn import DropConnectLSTM
 from layers.dropconnect_dense import DropConnectDense
@@ -117,7 +119,7 @@ def get_model(model_name, model_path, model_input_shape, model_output_dim, loss_
 def get_model_visual(model_name, model_path, model_input_shape, model_output_dim, model_visual_input_shape, loss_fn,
                      predict_variance, num_prediction_steps=15, weight_dropout=0., unit_dropout=0.35, lam=0.0001,
                      use_mc_dropout=True, num_units=256, cnn_extractor=tf.keras.applications.InceptionResNetV2,
-                     vf_vector_size=64, **kwargs):
+                     vf_vector_size=64, finetune_cnn_extractor=True, **kwargs):
 
     inputs = tf.keras.Input(model_input_shape)
     visual_inputs = tf.keras.Input(model_visual_input_shape)
@@ -126,17 +128,31 @@ def get_model_visual(model_name, model_path, model_input_shape, model_output_dim
     cnn_model = cnn_extractor(input_shape=model_visual_input_shape, include_top=False)
     cnn_ext = cnn_model(visual_inputs)
     visual_features_flat = tf.keras.layers.Flatten()(cnn_ext)
-    w_vis = DropConnectDense(128, kernel_dropout=weight_dropout,
+    w_vis_1 = DropConnectDense(512, kernel_dropout=weight_dropout,
                              unit_dropout=unit_dropout,
                              use_mc_dropout=use_mc_dropout,
                              kernel_regularizer=tf.keras.regularizers.l2(lam),
                              bias_regularizer=tf.keras.regularizers.l2(lam),
-                             activation=None)(visual_features_flat)
+                             activation=tf.nn.relu)(visual_features_flat)
 
-    w_in = Dense(vf_vector_size,
-                     kernel_regularizer=tf.keras.regularizers.l2(lam),
-                     bias_regularizer=tf.keras.regularizers.l2(lam),
-                     activation=tf.nn.relu)(inputs)
+    w_vis_2 = DropConnectDense(256, kernel_dropout=weight_dropout,
+                             unit_dropout=unit_dropout,
+                             use_mc_dropout=use_mc_dropout,
+                             kernel_regularizer=tf.keras.regularizers.l2(lam),
+                             bias_regularizer=tf.keras.regularizers.l2(lam),
+                             activation=tf.nn.relu)(w_vis_1)
+
+    w_vis_3 = DropConnectDense(vf_vector_size, kernel_dropout=weight_dropout,
+                             unit_dropout=unit_dropout,
+                             use_mc_dropout=use_mc_dropout,
+                             kernel_regularizer=tf.keras.regularizers.l2(lam),
+                             bias_regularizer=tf.keras.regularizers.l2(lam),
+                             activation=tf.nn.tanh)(w_vis_2)
+
+    w_in = Dense(64,
+                 kernel_regularizer=tf.keras.regularizers.l2(lam),
+                 bias_regularizer=tf.keras.regularizers.l2(lam),
+                 activation=tf.nn.relu)(inputs)
 
     encoder = DropConnectLSTM(num_units,
                                   dropout=unit_dropout,
@@ -148,7 +164,7 @@ def get_model_visual(model_name, model_path, model_input_shape, model_output_dim
                                   bias_regularizer=tf.keras.regularizers.l2(lam),
                                   use_mc_dropout=use_mc_dropout)(w_in)
 
-    z_enc = Concatenate()([encoder, w_vis])
+    z_enc = Concatenate()([encoder, w_vis_3])
 
     repeat_vector = RepeatVector(num_prediction_steps)(z_enc)
 
@@ -179,7 +195,7 @@ def get_model_visual(model_name, model_path, model_input_shape, model_output_dim
 
     # freeze weights of visual features pretrained cnn extractor
     for layer in cnn_model.layers:
-        layer.trainable = True
+        layer.trainable = finetune_cnn_extractor
 
     model = tf.keras.models.Model(inputs=[inputs, visual_inputs], outputs=y)
     model.compile(optimizer='adam', loss=loss_fn)

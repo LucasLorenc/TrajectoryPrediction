@@ -16,12 +16,12 @@ from tensorflow.keras.callbacks import ModelCheckpoint
 from distutils.util import strtobool
 
 # learning rate schedule
-def step_decay(epoch):
+def lr_schedule(epoch):
     initial_lrate = 0.01
     drop = 0.7
-    epochs_drop = 3
-    lrate = initial_lrate * np.power(drop, np.floor((1+epoch)/epochs_drop))
-    return lrate
+    epochs_drop = 4
+    lrate = initial_lrate * tf.math.pow(drop, tf.math.floor((1+epoch)/epochs_drop))
+    return lrate if lrate > 0.0001 else 0.0001
 
 
 def predict(model, test_x, mc_samples=10, predict_var=True):
@@ -43,7 +43,7 @@ def train(model_name, model_path='data/model', in_frames=8, out_frames=15, diff_
           imgs_base_path_test = 'data/imgs/test', tracks_base_path_test = 'data/tracks/tracks_test.h5',
           odometry_base_path_test = 'data/odometry/test', imgs_base_path_train = 'data/imgs/train',
           tracks_base_path_train = 'data/tracks/tracks_train.h5', odometry_base_path_train = 'data/odometry/train',
-          **model_kwargs):
+          finetune_cnn_extractor=False,**model_kwargs):
 
     model_kwargs = dict(locals(), **model_kwargs)
     del model_kwargs['model_kwargs'] # del duplicate values
@@ -129,6 +129,11 @@ def train(model_name, model_path='data/model', in_frames=8, out_frames=15, diff_
     else:
         model = get_model_visual(**model_kwargs) if use_visual_features else get_model(**model_kwargs)
 
+    if finetune_cnn_extractor:
+        #set all layers as trainable
+        for layer in model.layers:
+            layer.trainable = True
+
     if train_model:
         #split train data to val and train
         validation_split = 0.2
@@ -143,6 +148,9 @@ def train(model_name, model_path='data/model', in_frames=8, out_frames=15, diff_
         callbacks = []
         #call_back for validation with mc_sampling
         # callbacks.append(TrainEvalCallback(predict, train_x, train_y, tracks_mean, tracks_std, mc_samples, False))
+        # callbacks.append(tf.keras.callbacks.LearningRateScheduler(lr_schedule, verbose=1))
+        callbacks.append(tf.keras.callbacks.TerminateOnNaN())
+        # callbacks.append(mse_metric if predict_variance else mse)
         if not os.path.isdir(model_path): os.makedirs(model_path)
         checkpoint_cb = ModelCheckpoint(filepath=os.path.join(model_path, model_name), monitor='val_loss',mode='min',
                                            save_best_only=True)
@@ -215,24 +223,25 @@ def get_kwargs_from_cli():
     data_kwargs = get_kwargs_from_config('configuration/data.ini', 'data')
     model_kwargs = get_kwargs_from_config(kwargs['model_config'], 'model')
 
-    model_kwargs['use_visual_features'] = strtobool(model_kwargs.get('use_visual_features', False))
+    model_kwargs['use_visual_features'] = strtobool(model_kwargs.get('use_visual_features', 'False'))
+    model_kwargs['finetune_cnn_extractor'] = strtobool(model_kwargs.get('finetune_cnn_extractor', 'False'))
     model_kwargs['num_prediction_steps'] = int(model_kwargs.get('num_prediction_steps', 15))
     model_kwargs['in_frames'] = int(model_kwargs.get('in_frames', 8))
     model_kwargs['out_frames'] = int(model_kwargs.get('out_frames', 15))
     model_kwargs['weight_dropout'] = float(model_kwargs.get('weight_dropout', 0))
     model_kwargs['unit_dropout'] = float(model_kwargs.get('unit_dropout', 0))
     model_kwargs['lam'] = float(model_kwargs.get('lam', 0))
-    model_kwargs['predict_variance'] = strtobool(model_kwargs.get('predict_variance', True))
-    model_kwargs['use_mc_dropout'] = strtobool(model_kwargs.get('use_mc_dropout', True))
+    model_kwargs['predict_variance'] = strtobool(model_kwargs.get('predict_variance', 'True'))
+    model_kwargs['use_mc_dropout'] = strtobool(model_kwargs.get('use_mc_dropout', 'True'))
     model_kwargs['mc_samples'] = int(model_kwargs.get('mc_samples', 10))
     model_kwargs['epochs'] = int(model_kwargs.get('epochs', 20))
     model_kwargs['batch_size'] = int(model_kwargs.get('batch_size', 128))
     model_kwargs['num_units'] = int(model_kwargs.get('num_units', 256))
-    model_kwargs['normalize'] = strtobool(model_kwargs.get('normalize', True))
+    model_kwargs['normalize'] = strtobool(model_kwargs.get('normalize', 'True'))
     model_kwargs['loss_fn'] = get_fn(model_kwargs.get('loss_fn', 'heteroskedastic_loss_v2'))
     model_kwargs['diff_fn'] = get_fn(model_kwargs.get('diff_fn', 'get_diff_array'))
-    model_kwargs['shuffle'] = strtobool(model_kwargs.get('shuffle', True))
-    model_kwargs['force_load_data'] = strtobool(model_kwargs.get('force_load_data', False))
+    model_kwargs['shuffle'] = strtobool(model_kwargs.get('shuffle', 'True'))
+    model_kwargs['force_load_data'] = strtobool(model_kwargs.get('force_load_data', 'False'))
 
     kwargs = dict(kwargs, **data_kwargs, **model_kwargs)
 
