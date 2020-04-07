@@ -26,7 +26,7 @@ class Sequence(Sequence):
         batch_y = self.y[idx * self.batch_size:(idx + 1) * self.batch_size]
 
         if self.img_paths is not None:
-            imgs = self.load_images(idx, self.x.shape[1])
+            imgs = self.load_images(idx)
             batch_x = [batch_x, imgs]
 
         return batch_x, batch_y
@@ -36,16 +36,17 @@ class Sequence(Sequence):
         if self.shuffle:
             self.shuffle_dataset()
 
-    def load_images(self, idx, img_idx):
+    def load_images(self, idx):
         images = []
         end = min((idx + 1) * self.batch_size, self.x.shape[0])
         for i in range(idx * self.batch_size, end):
             sequence = self.img_paths[i]
-            img_path = sequence[img_idx]
+            img_path = sequence[self.x.shape[1]]
             img = cv2.imread(img_path)
             images.append(img)
 
-        images = np.asarray(images) / 255
+        images = np.asarray(images) / 127.5
+        images -= 1
         return images.astype(dtype='float32')
 
     def shuffle_dataset(self):
