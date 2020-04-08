@@ -7,7 +7,7 @@ import argparse
 import configparser
 import matplotlib.pyplot as plt
 from utils import *
-from sequence import Sequence
+from sequence_two_stream import Sequence
 from model.model import *
 from layers.dropconnect_rnn import DropConnectLSTM
 from layers.dropconnect_dense import DropConnectDense
@@ -43,7 +43,8 @@ def train(model_name, model_path='data/model', in_frames=8, out_frames=15, diff_
           imgs_base_path_test = 'data/imgs/test', tracks_base_path_test = 'data/tracks/tracks_test.h5',
           odometry_base_path_test = 'data/odometry/test', imgs_base_path_train = 'data/imgs/train',
           tracks_base_path_train = 'data/tracks/tracks_train.h5', odometry_base_path_train = 'data/odometry/train',
-          finetune_cnn_extractor=False,**model_kwargs):
+          odometry_pred_train='data/pred_odometry_train_y.p', odometry_pred_test='data/pred_odometry_test_y.p',
+          use_two_stream_model=False,**model_kwargs):
 
     model_kwargs = dict(locals(), **model_kwargs)
     del model_kwargs['model_kwargs'] # del duplicate values
@@ -127,12 +128,11 @@ def train(model_name, model_path='data/model', in_frames=8, out_frames=15, diff_
                                            compile=False)
         model.compile(optimizer='adam', loss=model_kwargs['loss_fn'])
     else:
-        model = get_model_visual(**model_kwargs) if use_visual_features else get_model(**model_kwargs)
+        model = get_model_two_stream(**model_kwargs) if use_two_stream_model else get_model(**model_kwargs)
 
-    if finetune_cnn_extractor:
-        #set all layers as trainable
-        for layer in model.layers:
-            layer.trainable = True
+    if use_two_stream_model:
+        odometry_y_train = load_pickle(odometry_pred_train)
+        odometry_y_test = load_pickle(odometry_pred_test)
 
     if train_model:
         #split train data to val and train
@@ -144,6 +144,9 @@ def train(model_name, model_path='data/model', in_frames=8, out_frames=15, diff_
         train_x = train_x[:val_size]
         train_image_sequence_paths = image_sequence_paths_train[:val_size]
         train_y = train_y[:val_size]
+        #odometry train/val split
+        dec_odometry_train = odometry_y_train[:val_size]
+        dec_odometry_val = odometry_y_train[val_size:]
 
         callbacks = []
         #call_back for validation with mc_sampling
@@ -160,9 +163,9 @@ def train(model_name, model_path='data/model', in_frames=8, out_frames=15, diff_
         callbacks.append(tf.keras.callbacks.TensorBoard(log_dir=log_dir, profile_batch=0))
 
 
-        train_gen = Sequence(train_x, train_y, train_image_sequence_paths if use_visual_features else None,
+        train_gen = Sequence(train_x, train_y, dec_odometry_train if use_two_stream_model else None,
                              batch_size=batch_size)
-        val_gen = Sequence(val_x, val_y, val_image_sequence_paths if use_visual_features else  None,
+        val_gen = Sequence(val_x, val_y, dec_odometry_val if use_two_stream_model else  None,
                            batch_size=batch_size)
 
         model.fit(train_gen, epochs=epochs, callbacks=callbacks, validation_data=val_gen)
@@ -174,7 +177,7 @@ def train(model_name, model_path='data/model', in_frames=8, out_frames=15, diff_
         epistemic = None
         aletoric = None
 
-        test_gen = Sequence(test_x, test_y, image_sequence_paths_test if use_visual_features else None,
+        test_gen = Sequence(test_x, test_y, odometry_y_test if use_two_stream_model else None,
                             batch_size=batch_size, shuffle=False)
         pred, log_var = predict(model, test_gen, predict_var=predict_variance, mc_samples=mc_samples)
 
@@ -224,7 +227,7 @@ def get_kwargs_from_cli():
     model_kwargs = get_kwargs_from_config(kwargs['model_config'], 'model')
 
     model_kwargs['use_visual_features'] = strtobool(model_kwargs.get('use_visual_features', 'False'))
-    model_kwargs['finetune_cnn_extractor'] = strtobool(model_kwargs.get('finetune_cnn_extractor', 'False'))
+    model_kwargs['use_two_stream_model'] = strtobool(model_kwargs.get('use_two_stream_model', 'False'))
     model_kwargs['num_prediction_steps'] = int(model_kwargs.get('num_prediction_steps', 15))
     model_kwargs['in_frames'] = int(model_kwargs.get('in_frames', 8))
     model_kwargs['out_frames'] = int(model_kwargs.get('out_frames', 15))

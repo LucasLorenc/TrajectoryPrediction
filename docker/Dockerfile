@@ -5,6 +5,6 @@ COPY . /home/llorenc/TrajectoryPrediction
 WORKDIR /home/llorenc/TrajectoryPrediction
 
 RUN apt-get update \
-    && apt-get install -y libsm6 libxext6 libxrender-dev \
+    && apt-get install -y libsm6 libxext6 libxrender-dev vim\
     && pip install jupyter \
     && pip install -r /home/llorenc/TrajectoryPrediction/docker/requirements.txt

@@ -119,7 +119,7 @@ def get_model(model_name, model_path, model_input_shape, model_output_dim, loss_
 def get_model_visual(model_name, model_path, model_input_shape, model_output_dim, model_visual_input_shape, loss_fn,
                      predict_variance, num_prediction_steps=15, weight_dropout=0., unit_dropout=0.35, lam=0.0001,
                      use_mc_dropout=True, num_units=256, cnn_extractor=tf.keras.applications.InceptionResNetV2,
-                     vf_vector_size=64, finetune_cnn_extractor=True, **kwargs):
+                     vf_vector_size=128, finetune_cnn_extractor=True, **kwargs):
 
     inputs = tf.keras.Input(model_input_shape)
     visual_inputs = tf.keras.Input(model_visual_input_shape)
@@ -154,7 +154,7 @@ def get_model_visual(model_name, model_path, model_input_shape, model_output_dim
                  bias_regularizer=tf.keras.regularizers.l2(lam),
                  activation=tf.nn.relu)(inputs)
 
-    encoder = DropConnectLSTM(num_units,
+    encoder = DropConnectLSTM(num_units // 2,
                                   dropout=unit_dropout,
                                   recurrent_dropout=unit_dropout,
                                   recurrent_kernel_dropout=weight_dropout,
@@ -198,6 +198,72 @@ def get_model_visual(model_name, model_path, model_input_shape, model_output_dim
         layer.trainable = finetune_cnn_extractor
 
     model = tf.keras.models.Model(inputs=[inputs, visual_inputs], outputs=y)
+    model.compile(optimizer='adam', loss=loss_fn)
+
+    return model
+
+
+def get_model_two_stream(model_name, model_path, model_input_shape, model_output_dim, loss_fn,
+                         predict_variance, num_prediction_steps=15, weight_dropout=0., unit_dropout=0.35, lam=0.0001,
+                         use_mc_dropout=True, num_units=256,embed_vector_size=64, **kwargs):
+
+    inputs = tf.keras.Input(model_input_shape)
+    dec_odometry_inputs = tf.keras.Input([num_prediction_steps, 2])
+
+    w_odo_embed = DropConnectDense(embed_vector_size,
+                                   kernel_dropout=weight_dropout,
+                                   unit_dropout=unit_dropout,
+                                   use_mc_dropout=use_mc_dropout,
+                                   kernel_regularizer=tf.keras.regularizers.l2(lam),
+                                   bias_regularizer=tf.keras.regularizers.l2(lam),
+                                   activation=tf.nn.tanh)(dec_odometry_inputs)
+
+    w_in = Dense(64,
+                 kernel_regularizer=tf.keras.regularizers.l2(lam),
+                 bias_regularizer=tf.keras.regularizers.l2(lam),
+                 activation=tf.nn.relu)(inputs)
+
+    encoder = DropConnectLSTM(num_units,
+                                  dropout=unit_dropout,
+                                  recurrent_dropout=unit_dropout,
+                                  recurrent_kernel_dropout=weight_dropout,
+                                  kernel_dropout=weight_dropout,
+                                  kernel_regularizer=tf.keras.regularizers.l2(lam),
+                                  recurrent_regularizer=tf.keras.regularizers.l2(lam),
+                                  bias_regularizer=tf.keras.regularizers.l2(lam),
+                                  use_mc_dropout=use_mc_dropout)(w_in)
+
+    repeat_vector = RepeatVector(num_prediction_steps)(encoder)
+
+    z_enc = Concatenate()([repeat_vector, w_odo_embed])
+
+    decoder = DropConnectLSTM(num_units,
+                                  dropout=unit_dropout,
+                                  recurrent_dropout=unit_dropout,
+                                  recurrent_kernel_dropout=weight_dropout,
+                                  kernel_dropout=weight_dropout,
+                                  kernel_regularizer=tf.keras.regularizers.l2(lam),
+                                  recurrent_regularizer=tf.keras.regularizers.l2(lam),
+                                  bias_regularizer=tf.keras.regularizers.l2(lam),
+                                  return_sequences=True,
+                                  use_mc_dropout=use_mc_dropout)(z_enc)
+
+    y = DropConnectDense(model_output_dim,
+                                kernel_dropout=weight_dropout,
+                                unit_dropout=unit_dropout,
+                                use_mc_dropout=use_mc_dropout,
+                                kernel_regularizer=tf.keras.regularizers.l2(lam),
+                                bias_regularizer=tf.keras.regularizers.l2(lam),
+                                activation=None)(decoder)
+    if predict_variance:
+        log_var = Dense(model_output_dim,
+                            kernel_regularizer=tf.keras.regularizers.l2(lam),
+                            bias_regularizer=tf.keras.regularizers.l2(lam),
+                            activation=tf.nn.relu)(decoder)
+        y = Concatenate()([y, log_var])
+
+
+    model = tf.keras.models.Model(inputs=[inputs, dec_odometry_inputs], outputs=y)
     model.compile(optimizer='adam', loss=loss_fn)
 
     return model
