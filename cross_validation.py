@@ -16,12 +16,12 @@ from tensorflow.keras.callbacks import ModelCheckpoint
 from distutils.util import strtobool
 
 # learning rate schedule
-def lr_schedule(epoch):
+def step_decay(epoch):
     initial_lrate = 0.01
     drop = 0.7
-    epochs_drop = 4
-    lrate = initial_lrate * tf.math.pow(drop, tf.math.floor((1+epoch)/epochs_drop))
-    return lrate if lrate > 0.0001 else 0.0001
+    epochs_drop = 3
+    lrate = initial_lrate * np.power(drop, np.floor((1+epoch)/epochs_drop))
+    return lrate
 
 
 def predict(model, test_x, mc_samples=10, predict_var=True):
@@ -34,6 +34,18 @@ def predict(model, test_x, mc_samples=10, predict_var=True):
         pred, logvar = np.split(pred, 2, axis=-1)
 
     return pred, logvar
+
+
+def cross_validation(data_x, data_y):
+    from sklearn.model_selection import KFold
+    data_train = []
+    data_test = []
+    kf = KFold(n_splits=3, random_state=None, shuffle=False)
+    for train_index, test_index in kf.split(data_x, data_y):
+        data_train.append((data_x[train_index], data_y[train_index]))
+        data_test.append((data_x[test_index], data_y[test_index]))
+
+    return data_train, data_test
 
 
 def train(model_name, model_path='data/model', in_frames=8, out_frames=15, diff_fn=get_diff_array_v2, normalize=False,
@@ -119,63 +131,40 @@ def train(model_name, model_path='data/model', in_frames=8, out_frames=15, diff_
     model_kwargs['model_visual_input_shape'] = [300, 150, 3]
     model_kwargs['model_output_dim'] = train_y.shape[-1]
 
-    if load_model:
-        #workaround Unknown loss function compile model after load_model
-        model = tf.keras.models.load_model(os.path.join(model_path, model_name),
-                                           custom_objects={'DropConnectDense': DropConnectDense,
-                                                           'DropConnectLSTM': DropConnectLSTM},
-                                           compile=False)
-        model.compile(optimizer='adam', loss=model_kwargs['loss_fn'])
-    else:
-        model = get_model_visual(**model_kwargs) if use_visual_features else get_model(**model_kwargs)
 
-    if finetune_cnn_extractor:
-        #set all layers as trainable
-        for layer in model.layers:
-            layer.trainable = True
+    if use_visual_features:
+        raise ValueError('Cross validation is not supported for model with visual features...')
 
-    if train_model:
-        #split train data to val and train
-        validation_split = 0.2
-        val_size = int(train_x.shape[0] * (1 - validation_split))
-        val_x = train_x[val_size:]
-        val_image_sequence_paths = image_sequence_paths_train[val_size:]
-        val_y = train_y[val_size:]
-        train_x = train_x[:val_size]
-        train_image_sequence_paths = image_sequence_paths_train[:val_size]
-        train_y = train_y[:val_size]
+    data_train, data_test = cross_validation(data_x=np.concatenate([train_x, test_x], axis=0),
+                                             data_y=np.concatenate([train_y, test_y], axis=0))
+    for _train, _test in zip(data_train.copy(), data_test.copy()):
+
+        model = get_model(**model_kwargs)
+
+        train_x, train_y = _train
+        test_x, test_y = _test
 
         callbacks = []
         #call_back for validation with mc_sampling
         # callbacks.append(TrainEvalCallback(predict, train_x, train_y, tracks_mean, tracks_std, mc_samples, False))
         # callbacks.append(tf.keras.callbacks.LearningRateScheduler(lr_schedule, verbose=1))
         callbacks.append(tf.keras.callbacks.TerminateOnNaN())
-        # callbacks.append(mse_metric if predict_variance else mse)
-        if not os.path.isdir(model_path): os.makedirs(model_path)
-        checkpoint_cb = ModelCheckpoint(filepath=os.path.join(model_path, model_name), monitor='val_loss',mode='min',
-                                           save_best_only=True)
-        callbacks.append(checkpoint_cb)
         log_dir = log_dir + model_name.split('.')[0]
         if not os.path.isdir(log_dir): os.makedirs(log_dir)
         callbacks.append(tf.keras.callbacks.TensorBoard(log_dir=log_dir, profile_batch=0))
 
 
-        train_gen = Sequence(train_x, train_y, train_image_sequence_paths if use_visual_features else None,
-                             batch_size=batch_size)
-        val_gen = Sequence(val_x, val_y, val_image_sequence_paths if use_visual_features else  None,
-                           batch_size=batch_size)
+        train_gen = Sequence(train_x, train_y, None, batch_size=batch_size)
 
-        model.fit(train_gen, epochs=epochs, callbacks=callbacks, validation_data=val_gen)
+        model.fit(train_gen, epochs=epochs, callbacks=callbacks)
 
         # saving model
-        model.save(os.path.join(model_path, model_name.split('.')[0] + '_end_' + model_name.split('.')[1]))
+        model.save(os.path.join(model_path, model_name.split('.')[0] + '_end.' + model_name.split('.')[1]))
 
-    if evaluate:
         epistemic = None
         aletoric = None
 
-        test_gen = Sequence(test_x, test_y, image_sequence_paths_test if use_visual_features else None,
-                            batch_size=batch_size, shuffle=False)
+        test_gen = Sequence(test_x, test_y, None, batch_size=batch_size, shuffle=False)
         pred, log_var = predict(model, test_gen, predict_var=predict_variance, mc_samples=mc_samples)
 
         def logsumexp(a):
@@ -202,7 +191,7 @@ def train(model_name, model_path='data/model', in_frames=8, out_frames=15, diff_
 
         if mc_samples > 1:
             epistemic = pred.var(axis=0)
-        # save_pickle('data/exp/dp_y_p_a_e.p', [test_y, pred, aletoric, epistemic])
+
         pred = pred.mean(axis=0)
 
         test_y = np.cumsum(test_y, axis=1) if diff_fn == get_diff_array_v2 else test_y

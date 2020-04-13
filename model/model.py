@@ -119,7 +119,7 @@ def get_model(model_name, model_path, model_input_shape, model_output_dim, loss_
 def get_model_visual(model_name, model_path, model_input_shape, model_output_dim, model_visual_input_shape, loss_fn,
                      predict_variance, num_prediction_steps=15, weight_dropout=0., unit_dropout=0.35, lam=0.0001,
                      use_mc_dropout=True, num_units=256, cnn_extractor=tf.keras.applications.InceptionResNetV2,
-                     vf_vector_size=64, finetune_cnn_extractor=True, **kwargs):
+                     vf_vector_size=128, finetune_cnn_extractor=True, **kwargs):
 
     inputs = tf.keras.Input(model_input_shape)
     visual_inputs = tf.keras.Input(model_visual_input_shape)

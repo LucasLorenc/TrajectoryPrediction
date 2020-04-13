@@ -42,7 +42,7 @@ class Sequence(Sequence):
         for i in range(idx * self.batch_size, end):
             sequence = self.img_paths[i]
             img_path = sequence[self.x.shape[1]]
-            img = cv2.imread(img_path)
+            img = cv2.cvtColor(cv2.imread(img_path), cv2.COLOR_BGR2RGB)
             images.append(img)
 
         images = np.asarray(images) / 127.5
