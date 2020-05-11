@@ -201,3 +201,17 @@ def get_model_visual(model_name, model_path, model_input_shape, model_output_dim
     model.compile(optimizer='adam', loss=loss_fn)
 
     return model
+
+
+if __name__ == '__main__':
+    model = get_model('data/model', 'model.h5', [7, 6], 4, heteroskedastic_loss_v2, True)
+    tf.keras.utils.plot_model(
+        model, to_file='model.png', show_shapes=False, show_layer_names=False,
+        rankdir='TB', expand_nested=False, dpi=96
+    )
+
+    model = get_model_visual('data/model', 'model.h5', [7, 6], 4, [300, 150, 3], heteroskedastic_loss_v2, True)
+    tf.keras.utils.plot_model(
+        model, to_file='model_vf.png', show_shapes=True, show_layer_names=True,
+        rankdir='TB', expand_nested=False, dpi=96
+    )

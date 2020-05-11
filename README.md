@@ -29,31 +29,50 @@ All values are in pixels aletoric uncertainty is scaled check train.py
 ## Requirments 
 
   - python 3.7.4
-  - Tensorlflow 2.0.0
+  - Tensorlflow 2.1
   - h5py
   - cv2
 
 ## Data
   - Pedestrian tracks files can be downloaded  [here](https://drive.google.com/drive/folders/1hOkm0O4AMrF0bNzdbY_RgOkeopE30R6U).
   - Images for tracks from [cityscapes dataset](https://www.cityscapes-dataset.com/downloads/)
+  - Configure paths to datasets into configuration/data.ini file
 
+## Creating docker container
+```
+#change volume path containing dataset inside build_and_run_container.sh
+./build_and_run_container.sh
+```
 ## Training
 ### Vanilla LSTM
 ```
-python train.py --model_name vanilla_lstm --epochs 20 --batch_size 128 --unit_dropout 0.0 --weight_dropout 0.0 --predict_variance False --mc_samples 1 --use_mc_dropout False --loss_fn mse
+python train.py --model_config configuration/vanilla_lstm.ini
 ```
 ### MC dropout LSTM
 ```
-python train.py --model_name mc_dropout_128 --epochs 40 --batch_size 128 --unit_dropout 0.25 --weight_dropout 0.0 --mc_samples 50
+python train.py --model_config configuration/dp_lstm.ini
 ```
 ### MC dropconnect LSTM
 ```
-python train.py --model_name mc_dropconnect --epochs 40 --batch_size 128 --unit_dropout 0.0 --weight_dropout 0.25 --mc_samples 50
+python train.py --model_config configuration/dc_lstm.ini
 ```
 
+## Evaluation
+
+### Vanilla LSTM
+```
+python eval.py --model_config configuration/vanilla_lstm.ini
+```
+### MC dropout LSTM
+```
+python eval.py --model_config configuration/dp_lstm.ini
+```
+### MC dropconnect LSTM
+```
+python eval.py --model_config configuration/dc_lstm.ini
+```
 ## Todos:
   - data preparation process refactor
-  - two stream model
   
 ## References
   - [1] Ghahramani, Gal. [Dropout as a Bayesian Approximation:

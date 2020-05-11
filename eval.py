@@ -36,7 +36,7 @@ def predict(model, test_x, mc_samples=10, predict_var=True):
     return pred, logvar
 
 
-def train(model_name, model_path='data/model', in_frames=8, out_frames=15, diff_fn=get_diff_array_v2, normalize=False,
+def eval(model_name, model_path='data/model', in_frames=8, out_frames=15, diff_fn=get_diff_array_v2, normalize=False,
           batch_size=128, epochs=20, evaluate=True, train_model=True, mc_samples=10, use_visual_features=False,
           predict_variance=True, odometry_model_path='data/model_odometry', odometry_model_name='model',
           load_model=False, shuffle=True, use_inverse_data=False, force_load_data=False, log_dir='data/logs/',
@@ -134,56 +134,13 @@ def train(model_name, model_path='data/model', in_frames=8, out_frames=15, diff_
         for layer in model.layers:
             layer.trainable = True
 
-    if train_model:
-        #split train data to val and train
-        validation_split = 0.2
-        val_size = int(train_x.shape[0] * (1 - validation_split))
-        val_x = train_x[val_size:]
-        val_image_sequence_paths = image_sequence_paths_train[val_size:]
-        val_y = train_y[val_size:]
-        train_x = train_x[:val_size]
-        train_image_sequence_paths = image_sequence_paths_train[:val_size]
-        train_y = train_y[:val_size]
-
-        callbacks = []
-        #call_back for validation with mc_sampling
-        # callbacks.append(TrainEvalCallback(predict, train_x, train_y, tracks_mean, tracks_std, mc_samples, False))
-        # callbacks.append(tf.keras.callbacks.LearningRateScheduler(lr_schedule, verbose=1))
-        callbacks.append(tf.keras.callbacks.TerminateOnNaN())
-        # callbacks.append(mse_metric if predict_variance else mse)
-        if not os.path.isdir(model_path): os.makedirs(model_path)
-        checkpoint_cb = ModelCheckpoint(filepath=os.path.join(model_path, model_name), monitor='val_loss',mode='min',
-                                           save_best_only=True)
-        callbacks.append(checkpoint_cb)
-        log_dir = log_dir + model_name.split('.')[0]
-        if not os.path.isdir(log_dir): os.makedirs(log_dir)
-        callbacks.append(tf.keras.callbacks.TensorBoard(log_dir=log_dir, profile_batch=0))
-
-
-        train_gen = Sequence(train_x, train_y, train_image_sequence_paths if use_visual_features else None,
-                             batch_size=batch_size)
-        val_gen = Sequence(val_x, val_y, val_image_sequence_paths if use_visual_features else  None,
-                           batch_size=batch_size)
-
-        model.fit(train_gen, epochs=epochs, callbacks=callbacks, validation_data=val_gen)
-
-        # saving model
-        model.save(os.path.join(model_path, model_name.split('.')[0] + '_end_' + model_name.split('.')[1]))
 
     if evaluate:
         epistemic = None
         aletoric = None
 
-        # workaround Unknown loss function compile model after load_model
-        model = tf.keras.models.load_model(os.path.join(model_path, model_name),
-                                           custom_objects={'DropConnectDense': DropConnectDense,
-                                                           'DropConnectLSTM': DropConnectLSTM},
-                                           compile=False)
-        model.compile(optimizer='adam', loss=model_kwargs['loss_fn'])
-
         test_gen = Sequence(test_x, test_y, image_sequence_paths_test if use_visual_features else None,
                             batch_size=batch_size, shuffle=False)
-        print('Evaluating model...')
         pred, log_var = predict(model, test_gen, predict_var=predict_variance, mc_samples=mc_samples)
 
         def logsumexp(a):
@@ -216,7 +173,7 @@ def train(model_name, model_path='data/model', in_frames=8, out_frames=15, diff_
         test_y = np.cumsum(test_y, axis=1) if diff_fn == get_diff_array_v2 else test_y
         pred = np.cumsum(pred, axis=1) if diff_fn == get_diff_array_v2 else pred
         mse = np.square(pred - test_y).mean()
-        print('Test MSE: %f Aletoric unc.: %s Epistemic unc: %s' % (mse,
+        print('MSE: %f Aletoric unc.: %s Epistemic unc: %s' % (mse,
                                                                str(aletoric.mean()) if aletoric is not None else '-',
                                                                str(epistemic.mean()) if epistemic is not None else '-'))
 
@@ -229,14 +186,15 @@ def get_kwargs_from_cli():
         return globals()[loss_fn]
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model_config', type=str, default='configuration/dc_lstm_vf.ini')
-    parser.add_argument('--evaluate', type=strtobool, default=True, choices=[True, False])
-    parser.add_argument('--train_model', type=strtobool, default=True, choices=[True, False])
-    parser.add_argument('--load_model', type=strtobool, default=False, choices=[True, False])
+    parser.add_argument('--model_config', type=str, default='configuration/dc_lstm.ini')
 
     args = parser.parse_args()
 
     kwargs = dict(args._get_kwargs())
+
+    kwargs['evaluate'] = True
+    kwargs['train_model'] = False
+    kwargs['load_model'] = True
 
     data_kwargs = get_kwargs_from_config('configuration/data.ini', 'data')
     model_kwargs = get_kwargs_from_config(kwargs['model_config'], 'model')
@@ -280,4 +238,4 @@ if __name__ == '__main__':
     np.random.seed(1444)  # random seed for train data shuffling
 
     kwargs = get_kwargs_from_cli()
-    model = train(**kwargs)
+    model = eval(**kwargs)
